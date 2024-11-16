@@ -8,11 +8,11 @@ describe('place-sell-stop-loss-order.js', () => {
   let slackMock;
   let loggerMock;
 
-  let mockGetAndCacheOpenOrdersForSymbol;
   let mockGetAccountInfoFromAPI;
   let mockIsExceedAPILimit;
   let mockDisableAction;
   let mockGetAPILimit;
+  let mockGetAndCacheOpenOrdersForSymbol;
 
   let mockSaveSymbolGridTrade;
 
@@ -35,80 +35,8 @@ describe('place-sell-stop-loss-order.js', () => {
       mockGetAPILimit = jest.fn().mockReturnValueOnce(10);
 
       mockSaveSymbolGridTrade = jest.fn().mockResolvedValue(true);
-    });
 
-    describe('when symbol is locked', () => {
-      beforeEach(async () => {
-        mockGetAndCacheOpenOrdersForSymbol = jest.fn().mockResolvedValue([]);
-        mockGetAccountInfoFromAPI = jest.fn().mockResolvedValue({
-          account: 'info'
-        });
-
-        jest.mock('../../../trailingTradeHelper/common', () => ({
-          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
-          getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
-          isExceedAPILimit: mockIsExceedAPILimit,
-          disableAction: mockDisableAction,
-          getAPILimit: mockGetAPILimit
-        }));
-
-        jest.mock('../../../trailingTradeHelper/configuration', () => ({
-          saveSymbolGridTrade: mockSaveSymbolGridTrade
-        }));
-
-        const step = require('../place-sell-stop-loss-order');
-
-        rawData = {
-          symbol: 'BTCUPUSDT',
-          isLocked: true,
-          symbolInfo: {
-            filterLotSize: {
-              stepSize: '0.01000000',
-              minQty: '0.01000000',
-              maxQty: '100.0000000'
-            },
-            filterPrice: { tickSize: '0.00100000' },
-            filterMinNotional: { minNotional: '10.00000000' }
-          },
-          symbolConfiguration: {
-            buy: { gridTrade: [] },
-            sell: {
-              enabled: true,
-              gridTrade: [],
-              stopLoss: {
-                orderType: 'market',
-                disableBuyMinutes: 60
-              }
-            }
-          },
-          action: 'not-determined',
-          baseAssetBalance: { free: 0.5 },
-          sell: { currentPrice: 200, openOrders: [] },
-          canDisable: true
-        };
-
-        result = await step.execute(loggerMock, rawData);
-      });
-
-      it('does not trigger binance.client.order', () => {
-        expect(binanceMock.client.order).not.toHaveBeenCalled();
-      });
-
-      it('does not trigger getAndCacheOpenOrdersForSymbol', () => {
-        expect(mockGetAndCacheOpenOrdersForSymbol).not.toHaveBeenCalled();
-      });
-
-      it('does not trigger getAccountInfoFromAPI', () => {
-        expect(mockGetAccountInfoFromAPI).not.toHaveBeenCalled();
-      });
-
-      it('does not trigger saveSymbolGridTrade', () => {
-        expect(mockSaveSymbolGridTrade).not.toHaveBeenCalled();
-      });
-
-      it('retruns expected value', () => {
-        expect(result).toStrictEqual(rawData);
-      });
+      mockGetAndCacheOpenOrdersForSymbol = jest.fn().mockResolvedValue([]);
     });
 
     describe('when action is not sell-stop-loss', () => {
@@ -119,11 +47,11 @@ describe('place-sell-stop-loss-order.js', () => {
         });
 
         jest.mock('../../../trailingTradeHelper/common', () => ({
-          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
           getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
           isExceedAPILimit: mockIsExceedAPILimit,
           disableAction: mockDisableAction,
-          getAPILimit: mockGetAPILimit
+          getAPILimit: mockGetAPILimit,
+          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
         }));
 
         jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -134,7 +62,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
         rawData = {
           symbol: 'BTCUPUSDT',
-          isLocked: false,
           symbolInfo: {
             filterLotSize: {
               stepSize: '0.01000000',
@@ -193,11 +120,11 @@ describe('place-sell-stop-loss-order.js', () => {
         });
 
         jest.mock('../../../trailingTradeHelper/common', () => ({
-          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
           getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
           isExceedAPILimit: mockIsExceedAPILimit,
           disableAction: mockDisableAction,
-          getAPILimit: mockGetAPILimit
+          getAPILimit: mockGetAPILimit,
+          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
         }));
 
         jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -208,7 +135,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
         rawData = {
           symbol: 'BTCUPUSDT',
-          isLocked: false,
           symbolInfo: {
             filterLotSize: {
               stepSize: '0.01000000',
@@ -300,11 +226,11 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           jest.mock('../../../trailingTradeHelper/common', () => ({
-            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
             getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
             isExceedAPILimit: mockIsExceedAPILimit,
             disableAction: mockDisableAction,
-            getAPILimit: mockGetAPILimit
+            getAPILimit: mockGetAPILimit,
+            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
           }));
 
           jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -315,7 +241,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
           rawData = {
             symbol: 'BTCUPUSDT',
-            isLocked: false,
             symbolInfo: {
               filterLotSize: {
                 stepSize: '0.01000000',
@@ -389,11 +314,11 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           jest.mock('../../../trailingTradeHelper/common', () => ({
-            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
             getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
             isExceedAPILimit: mockIsExceedAPILimit,
             disableAction: mockDisableAction,
-            getAPILimit: mockGetAPILimit
+            getAPILimit: mockGetAPILimit,
+            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
           }));
 
           jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -404,7 +329,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
           rawData = {
             symbol: 'ALPHABTC',
-            isLocked: false,
             symbolInfo: {
               filterLotSize: {
                 minQty: '1.00000000',
@@ -478,11 +402,11 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           jest.mock('../../../trailingTradeHelper/common', () => ({
-            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
             getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
             isExceedAPILimit: mockIsExceedAPILimit,
             disableAction: mockDisableAction,
-            getAPILimit: mockGetAPILimit
+            getAPILimit: mockGetAPILimit,
+            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
           }));
 
           jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -493,7 +417,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
           rawData = {
             symbol: 'BTCBRL',
-            isLocked: false,
             symbolInfo: {
               filterLotSize: {
                 minQty: '0.00000100',
@@ -569,11 +492,11 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           jest.mock('../../../trailingTradeHelper/common', () => ({
-            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
             getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
             isExceedAPILimit: mockIsExceedAPILimit,
             disableAction: mockDisableAction,
-            getAPILimit: mockGetAPILimit
+            getAPILimit: mockGetAPILimit,
+            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
           }));
 
           jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -584,7 +507,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
           rawData = {
             symbol: 'BTCUPUSDT',
-            isLocked: false,
             symbolInfo: {
               filterLotSize: {
                 stepSize: '0.01000000',
@@ -657,11 +579,11 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           jest.mock('../../../trailingTradeHelper/common', () => ({
-            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
             getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
             isExceedAPILimit: mockIsExceedAPILimit,
             disableAction: mockDisableAction,
-            getAPILimit: mockGetAPILimit
+            getAPILimit: mockGetAPILimit,
+            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
           }));
 
           jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -672,7 +594,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
           rawData = {
             symbol: 'ALPHABTC',
-            isLocked: false,
             symbolInfo: {
               filterLotSize: {
                 minQty: '1.00000000',
@@ -745,11 +666,11 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           jest.mock('../../../trailingTradeHelper/common', () => ({
-            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
             getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
             isExceedAPILimit: mockIsExceedAPILimit,
             disableAction: mockDisableAction,
-            getAPILimit: mockGetAPILimit
+            getAPILimit: mockGetAPILimit,
+            getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
           }));
 
           jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -760,7 +681,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
           rawData = {
             symbol: 'BTCBRL',
-            isLocked: false,
             symbolInfo: {
               filterLotSize: {
                 minQty: '0.00000100',
@@ -834,11 +754,11 @@ describe('place-sell-stop-loss-order.js', () => {
         });
 
         jest.mock('../../../trailingTradeHelper/common', () => ({
-          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
           getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
           isExceedAPILimit: mockIsExceedAPILimit,
           disableAction: mockDisableAction,
-          getAPILimit: mockGetAPILimit
+          getAPILimit: mockGetAPILimit,
+          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
         }));
 
         jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -849,7 +769,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
         rawData = {
           symbol: 'BTCUPUSDT',
-          isLocked: false,
           symbolInfo: {
             filterLotSize: {
               stepSize: '0.01000000',
@@ -924,11 +843,11 @@ describe('place-sell-stop-loss-order.js', () => {
         });
 
         jest.mock('../../../trailingTradeHelper/common', () => ({
-          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
           getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
           isExceedAPILimit: mockIsExceedAPILimit,
           disableAction: mockDisableAction,
-          getAPILimit: mockGetAPILimit
+          getAPILimit: mockGetAPILimit,
+          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
         }));
 
         jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -939,7 +858,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
         rawData = {
           symbol: 'BTCUPUSDT',
-          isLocked: false,
           symbolInfo: {
             filterLotSize: {
               stepSize: '0.01000000',
@@ -1012,11 +930,11 @@ describe('place-sell-stop-loss-order.js', () => {
         });
 
         jest.mock('../../../trailingTradeHelper/common', () => ({
-          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
           getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
           isExceedAPILimit: mockIsExceedAPILimit,
           disableAction: mockDisableAction,
-          getAPILimit: mockGetAPILimit
+          getAPILimit: mockGetAPILimit,
+          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
         }));
 
         jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -1027,7 +945,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
         rawData = {
           symbol: 'BTCUPUSDT',
-          isLocked: false,
           symbolInfo: {
             filterLotSize: {
               stepSize: '0.01000000',
@@ -1118,12 +1035,11 @@ describe('place-sell-stop-loss-order.js', () => {
             });
 
             jest.mock('../../../trailingTradeHelper/common', () => ({
-              getAndCacheOpenOrdersForSymbol:
-                mockGetAndCacheOpenOrdersForSymbol,
               getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
               isExceedAPILimit: mockIsExceedAPILimit,
               disableAction: mockDisableAction,
-              getAPILimit: mockGetAPILimit
+              getAPILimit: mockGetAPILimit,
+              getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
             }));
 
             jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -1134,7 +1050,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
             rawData = {
               symbol: 'BTCUPUSDT',
-              isLocked: false,
               symbolInfo: {
                 filterLotSize: {
                   stepSize: '0.01000000',
@@ -1210,7 +1125,10 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           it('triggers getAndCacheOpenOrdersForSymbol', () => {
-            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalled();
+            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalledWith(
+              loggerMock,
+              'BTCUPUSDT'
+            );
           });
 
           it('triggers getAccountInfoFromAPI', () => {
@@ -1308,12 +1226,11 @@ describe('place-sell-stop-loss-order.js', () => {
             });
 
             jest.mock('../../../trailingTradeHelper/common', () => ({
-              getAndCacheOpenOrdersForSymbol:
-                mockGetAndCacheOpenOrdersForSymbol,
               getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
               isExceedAPILimit: mockIsExceedAPILimit,
               disableAction: mockDisableAction,
-              getAPILimit: mockGetAPILimit
+              getAPILimit: mockGetAPILimit,
+              getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
             }));
 
             jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -1324,7 +1241,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
             rawData = {
               symbol: 'ALPHABTC',
-              isLocked: false,
               symbolInfo: {
                 filterLotSize: {
                   minQty: '1.00000000',
@@ -1407,7 +1323,10 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           it('triggers getAndCacheOpenOrdersForSymbol', () => {
-            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalled();
+            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalledWith(
+              loggerMock,
+              'ALPHABTC'
+            );
           });
 
           it('triggers getAccountInfoFromAPI', () => {
@@ -1512,12 +1431,11 @@ describe('place-sell-stop-loss-order.js', () => {
             });
 
             jest.mock('../../../trailingTradeHelper/common', () => ({
-              getAndCacheOpenOrdersForSymbol:
-                mockGetAndCacheOpenOrdersForSymbol,
               getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
               isExceedAPILimit: mockIsExceedAPILimit,
               disableAction: mockDisableAction,
-              getAPILimit: mockGetAPILimit
+              getAPILimit: mockGetAPILimit,
+              getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
             }));
 
             jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -1528,7 +1446,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
             rawData = {
               symbol: 'BTCBRL',
-              isLocked: false,
               symbolInfo: {
                 filterLotSize: {
                   minQty: '0.00000100',
@@ -1611,7 +1528,10 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           it('triggers getAndCacheOpenOrdersForSymbol', () => {
-            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalled();
+            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalledWith(
+              loggerMock,
+              'BTCBRL'
+            );
           });
 
           it('triggers getAccountInfoFromAPI', () => {
@@ -1718,12 +1638,11 @@ describe('place-sell-stop-loss-order.js', () => {
             });
 
             jest.mock('../../../trailingTradeHelper/common', () => ({
-              getAndCacheOpenOrdersForSymbol:
-                mockGetAndCacheOpenOrdersForSymbol,
               getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
               isExceedAPILimit: mockIsExceedAPILimit,
               disableAction: mockDisableAction,
-              getAPILimit: mockGetAPILimit
+              getAPILimit: mockGetAPILimit,
+              getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
             }));
 
             jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -1734,7 +1653,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
             rawData = {
               symbol: 'BTCUPUSDT',
-              isLocked: false,
               symbolInfo: {
                 filterLotSize: {
                   stepSize: '0.01000000',
@@ -1807,7 +1725,10 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           it('triggers getAndCacheOpenOrdersForSymbol', () => {
-            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalled();
+            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalledWith(
+              loggerMock,
+              'BTCUPUSDT'
+            );
           });
 
           it('triggers getAccountInfoFromAPI', () => {
@@ -1912,12 +1833,11 @@ describe('place-sell-stop-loss-order.js', () => {
             });
 
             jest.mock('../../../trailingTradeHelper/common', () => ({
-              getAndCacheOpenOrdersForSymbol:
-                mockGetAndCacheOpenOrdersForSymbol,
               getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
               isExceedAPILimit: mockIsExceedAPILimit,
               disableAction: mockDisableAction,
-              getAPILimit: mockGetAPILimit
+              getAPILimit: mockGetAPILimit,
+              getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
             }));
 
             jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -1928,7 +1848,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
             rawData = {
               symbol: 'ALPHABTC',
-              isLocked: false,
               symbolInfo: {
                 filterLotSize: {
                   minQty: '1.00000000',
@@ -2001,7 +1920,10 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           it('triggers getAndCacheOpenOrdersForSymbol', () => {
-            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalled();
+            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalledWith(
+              loggerMock,
+              'ALPHABTC'
+            );
           });
 
           it('triggers getAccountInfoFromAPI', () => {
@@ -2106,12 +2028,11 @@ describe('place-sell-stop-loss-order.js', () => {
             });
 
             jest.mock('../../../trailingTradeHelper/common', () => ({
-              getAndCacheOpenOrdersForSymbol:
-                mockGetAndCacheOpenOrdersForSymbol,
               getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
               isExceedAPILimit: mockIsExceedAPILimit,
               disableAction: mockDisableAction,
-              getAPILimit: mockGetAPILimit
+              getAPILimit: mockGetAPILimit,
+              getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol
             }));
 
             jest.mock('../../../trailingTradeHelper/configuration', () => ({
@@ -2122,7 +2043,6 @@ describe('place-sell-stop-loss-order.js', () => {
 
             rawData = {
               symbol: 'BTCBRL',
-              isLocked: false,
               symbolInfo: {
                 filterLotSize: {
                   minQty: '0.00000100',
@@ -2195,7 +2115,10 @@ describe('place-sell-stop-loss-order.js', () => {
           });
 
           it('triggers getAndCacheOpenOrdersForSymbol', () => {
-            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalled();
+            expect(mockGetAndCacheOpenOrdersForSymbol).toHaveBeenCalledWith(
+              loggerMock,
+              'BTCBRL'
+            );
           });
 
           it('triggers getAccountInfoFromAPI', () => {

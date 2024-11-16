@@ -2,34 +2,48 @@
 /* eslint-disable react/jsx-no-undef */
 /* eslint-disable no-undef */
 class AccountWrapper extends React.Component {
+  constructor(props) {
+    super(props);
+
+    this.accordion = null;
+
+    this.setFilter = this.setFilter.bind(this);
+  }
+
+  setFilter(asset) {
+    this.props.setSearchKeyword(asset);
+
+    this.accordion.click();
+
+    const orderStatsEl = document.querySelector('.order-stats-wrapper');
+    if (orderStatsEl)
+      setTimeout(function () {
+        orderStatsEl.scrollIntoView({
+          behavior: 'smooth'
+        });
+      }, 750);
+  }
+
   render() {
     const {
       accountInfo,
       dustTransfer,
       sendWebSocket,
       isAuthenticated,
-      quoteEstimates
+      totalProfitAndLoss
     } = this.props;
 
     const assets = accountInfo.balances.map((balance, index) => {
-      let quoteEstimate = quoteEstimates.filter(
-        elem => elem.baseAsset === balance.asset
-      );
-
-      if (quoteEstimate.length == 1) {
-        quoteEstimate = {
-          quote: quoteEstimate[0]['quoteAsset'],
-          estimate: quoteEstimate[0]['estimatedValue']
-        };
-      } else {
-        quoteEstimate = null;
-      }
-
       return (
         <AccountWrapperAsset
           key={`account-wrapper-` + index}
           balance={balance}
-          quoteEstimate={quoteEstimate}></AccountWrapperAsset>
+          isQuoteAsset={
+            totalProfitAndLoss.find(
+              profitAndLoss => profitAndLoss.asset === balance.asset
+            ) !== undefined
+          }
+          setFilter={this.setFilter}></AccountWrapperAsset>
       );
     });
 
@@ -38,6 +52,7 @@ class AccountWrapper extends React.Component {
         <Accordion>
           <Card bg='dark'>
             <Accordion.Toggle
+              ref={element => (this.accordion = element)}
               as={Card.Header}
               eventKey='0'
               className='px-2 py-1'>
@@ -49,10 +64,10 @@ class AccountWrapper extends React.Component {
             </Accordion.Toggle>
             <Accordion.Collapse eventKey='0'>
               <Card.Body className='d-flex flex-column py-2 px-0'>
-                <div className='account-balance-assets-wrapper d-flex flex-row flex-wrap justify-content-start'>
+                <div className='account-balance-assets-wrapper px-2'>
                   {assets}
                 </div>
-                <div className='account-balance-assets-wrapper d-flex flex-row flex-wrap justify-content-end'>
+                <div className='d-flex flex-row flex-wrap justify-content-end'>
                   <DustTransferIcon
                     isAuthenticated={isAuthenticated}
                     dustTransfer={dustTransfer}

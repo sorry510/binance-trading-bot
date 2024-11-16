@@ -22,26 +22,55 @@ class App extends React.Component {
       publicURL: '',
       dustTransfer: {},
       availableSortOptions: [
-        { sortBy: 'default', label: 'Default' },
-        { sortBy: 'buy-difference-asc', label: 'Buy - Difference (asc)' },
-        { sortBy: 'buy-difference-desc', label: 'Buy - Difference (desc)' },
-        { sortBy: 'sell-profit-asc', label: 'Sell - Profit (asc)' },
-        { sortBy: 'sell-profit-desc', label: 'Sell - Profit (desc)' },
-        { sortBy: 'alpha-asc', label: 'Alphabetical (asc)' },
-        { sortBy: 'alpha-desc', label: 'Alphabetical (desc)' }
+        { sortBy: 'default', sortByDesc: false, label: 'Default' },
+        {
+          sortBy: 'buy-difference',
+          sortByDesc: false,
+          label: 'Buy - Difference (asc)'
+        },
+        {
+          sortBy: 'buy-difference',
+          sortByDesc: true,
+          label: 'Buy - Difference (desc)'
+        },
+        {
+          sortBy: 'sell-profit',
+          sortByDesc: false,
+          label: 'Sell - Profit (asc)'
+        },
+        {
+          sortBy: 'sell-profit',
+          sortByDesc: true,
+          label: 'Sell - Profit (desc)'
+        },
+        { sortBy: 'alpha', sortByDesc: false, label: 'Alphabetical (asc)' },
+        { sortBy: 'alpha', sortByDesc: true, label: 'Alphabetical (desc)' }
       ],
-      selectedSortOption: 'default',
+      selectedSortOption: {
+        sortBy: 'default',
+        sortByDesc: false,
+        hideInactive: false
+      },
       searchKeyword: '',
       isLoaded: false,
       isAuthenticated: false,
       botOptions: {},
-      authToken: localStorage.getItem('authToken') || ''
+      authToken: localStorage.getItem('authToken') || '',
+      totalProfitAndLoss: {},
+      streamsCount: 0,
+      monitoringSymbolsCount: 0,
+      cachedMonitoringSymbolsCount: 0,
+      page: 1,
+      totalPages: 1,
+      tradingViewIntervals: ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d'],
+      tradingViews: []
     };
     this.requestLatest = this.requestLatest.bind(this);
     this.connectWebSocket = this.connectWebSocket.bind(this);
     this.sendWebSocket = this.sendWebSocket.bind(this);
     this.setSortOption = this.setSortOption.bind(this);
     this.setSearchKeyword = this.setSearchKeyword.bind(this);
+    this.setPage = this.setPage.bind(this);
 
     this.toast = this.toast.bind(this);
 
@@ -49,7 +78,37 @@ class App extends React.Component {
       types: [
         {
           type: 'info',
-          background: '#2f96b4',
+          background: '#bf9106',
+          icon: {
+            className: 'fas fa-info-circle fa-lg',
+            tagName: 'i',
+            text: '',
+            color: 'white'
+          }
+        },
+        {
+          type: 'buy',
+          background: '#02c076',
+          icon: {
+            className: 'fas fa-info-circle fa-lg',
+            tagName: 'i',
+            text: '',
+            color: 'white'
+          }
+        },
+        {
+          type: 'sell',
+          background: '#bf374a',
+          icon: {
+            className: 'fas fa-info-circle fa-lg',
+            tagName: 'i',
+            text: '',
+            color: 'white'
+          }
+        },
+        {
+          type: 'success',
+          background: '#17a9bf',
           icon: {
             className: 'fas fa-info-circle fa-lg',
             tagName: 'i',
@@ -59,7 +118,7 @@ class App extends React.Component {
         },
         {
           type: 'warning',
-          background: '#fd7e14',
+          background: '#bf5e0f',
           icon: {
             className: 'fas fa-exclamation-circle fa-lg',
             tagName: 'i',
@@ -68,7 +127,7 @@ class App extends React.Component {
           }
         }
       ],
-      duration: 3000,
+      duration: 8000,
       ripple: true,
       position: { x: 'right', y: 'bottom' },
       dismissible: true
@@ -76,11 +135,25 @@ class App extends React.Component {
   }
 
   requestLatest() {
-    this.sendWebSocket('latest');
+    this.sendWebSocket('latest', {
+      page: this.state.page,
+      searchKeyword: this.state.searchKeyword,
+      sortBy: this.state.selectedSortOption.sortBy,
+      sortByDesc: this.state.selectedSortOption.sortByDesc,
+      hideInactive: this.state.selectedSortOption.hideInactive
+    });
   }
 
   toast({ type, title }) {
     // this.notyf.dismissAll();
+    if (type !== 'warning' && type !== 'error') {
+      if (title.toLowerCase().includes('buy ')) {
+        type = 'buy';
+      }
+      if (title.toLowerCase().includes('sell ')) {
+        type = 'sell';
+      }
+    }
     this.notyf.open({
       type,
       message: title
@@ -133,16 +206,30 @@ class App extends React.Component {
             {}
           ),
           closedTrades: _.get(response, ['common', 'closedTrades'], []),
-          symbols: sortingSymbols(_.get(response, ['stats', 'symbols'], []), {
-            selectedSortOption: self.state.selectedSortOption,
-            searchKeyword: self.state.searchKeyword
-          }),
+          symbols: _.get(response, ['stats', 'symbols'], []),
           packageVersion: _.get(response, ['common', 'version'], ''),
           gitHash: _.get(response, ['common', 'gitHash'], ''),
-          exchangeSymbols: _.get(response, ['common', 'exchangeSymbols'], []),
           accountInfo: _.get(response, ['common', 'accountInfo'], {}),
           publicURL: _.get(response, ['common', 'publicURL'], ''),
-          apiInfo: _.get(response, ['common', 'apiInfo'], {})
+          apiInfo: _.get(response, ['common', 'apiInfo'], {}),
+          totalProfitAndLoss: _.get(
+            response,
+            ['common', 'totalProfitAndLoss'],
+            ''
+          ),
+          streamsCount: _.get(response, ['common', 'streamsCount'], 0),
+          monitoringSymbolsCount: _.get(
+            response,
+            ['common', 'monitoringSymbolsCount'],
+            0
+          ),
+          cachedMonitoringSymbolsCount: _.get(
+            response,
+            ['common', 'cachedMonitoringSymbolsCount'],
+            0
+          ),
+          totalPages: _.get(response, ['common', 'totalPages'], 1),
+          tradingViews: _.get(response, ['stats', 'tradingViews'], [])
         });
       }
 
@@ -156,6 +243,12 @@ class App extends React.Component {
       if (response.type === 'dust-transfer-get-result') {
         self.setState({
           dustTransfer: response.dustTransfer
+        });
+      }
+
+      if (response.type === 'exchange-symbols-get-result') {
+        self.setState({
+          exchangeSymbols: response.exchangeSymbols
         });
       }
     };
@@ -180,6 +273,22 @@ class App extends React.Component {
     };
   }
 
+  isAccountLoaded() {
+    const { isLoaded, accountInfo } = this.state;
+
+    return isLoaded === true && _.get(accountInfo, 'accountType') === 'SPOT';
+  }
+
+  isLocked() {
+    const { isAuthenticated, botOptions, isLoaded } = this.state;
+
+    return (
+      isLoaded === true &&
+      isAuthenticated === false &&
+      _.get(botOptions, ['authentication', 'lockList'], true) === true
+    );
+  }
+
   sendWebSocket(command, data = {}) {
     const { instance, connected } = this.state.webSocket;
 
@@ -197,14 +306,47 @@ class App extends React.Component {
   }
 
   setSearchKeyword(searchKeyword) {
+    if (searchKeyword)
+      this.toast({
+        type: 'success',
+        title: `Filtering assets with ${searchKeyword}`
+      });
+    else
+      this.toast({
+        type: 'success',
+        title: this.state.selectedSortOption.hideInactive
+          ? 'Showing active symbols'
+          : 'Showing all symbols'
+      });
+
     this.setState({
-      searchKeyword
+      searchKeyword,
+      page: 1
+    });
+  }
+
+  setPage(newPage) {
+    this.setState({
+      page: newPage
     });
   }
 
   componentDidMount() {
-    const selectedSortOption =
-      localStorage.getItem('selectedSortOption') || 'default';
+    let selectedSortOption = {
+      sortBy: 'default',
+      sortByDesc: false,
+      hideInactive: false
+    };
+
+    try {
+      selectedSortOption = JSON.parse(
+        localStorage.getItem('selectedSortOption')
+      ) || {
+        sortBy: 'default',
+        sortByDesc: false,
+        hideInactive: false
+      };
+    } catch (e) {}
 
     this.setState({
       selectedSortOption
@@ -233,28 +375,59 @@ class App extends React.Component {
       closedTrades,
       publicURL,
       apiInfo,
+      streamsCount,
+      monitoringSymbolsCount,
+      cachedMonitoringSymbolsCount,
       dustTransfer,
       availableSortOptions,
       selectedSortOption,
       searchKeyword,
       isAuthenticated,
-      botOptions,
-      isLoaded
+      isLoaded,
+      totalProfitAndLoss,
+      page,
+      totalPages,
+      tradingViewIntervals,
+      tradingViews
     } = this.state;
 
     if (isLoaded === false) {
       return <AppLoading />;
     }
 
-    if (
-      isLoaded === true &&
-      isAuthenticated === false &&
-      _.get(botOptions, ['authentication', 'lockList'], true) === true
-    ) {
+    if (this.isLocked()) {
       return <LockScreen />;
     }
 
-    const coinWrappers = symbols.map((symbol, index) => {
+    if (this.isAccountLoaded() === false) {
+      return <APIError />;
+    }
+
+    const activeSymbols = selectedSortOption.hideInactive
+      ? symbols.filter(
+          s =>
+            s.symbolConfiguration.buy.enabled ||
+            s.symbolConfiguration.sell.enabled
+        )
+      : symbols;
+
+    const coinWrappers = activeSymbols.map((symbol, index) => {
+      const symbolTradingViewIntervals = (
+        symbol.symbolConfiguration.botOptions.tradingViews || []
+      ).map(c => c.interval);
+
+      const symbolTradingViews = tradingViews
+        .filter(
+          tradingView =>
+            tradingView.request.symbol === symbol.symbol &&
+            symbolTradingViewIntervals.includes(tradingView.request.interval)
+        )
+        .sort((a, b) => {
+          const aIdx = tradingViewIntervals.indexOf(a.request.interval);
+          const bIdx = tradingViewIntervals.indexOf(b.request.interval);
+          return aIdx - bIdx;
+        });
+
       return (
         <CoinWrapper
           extraClassName={
@@ -264,20 +437,62 @@ class App extends React.Component {
           connected={connected}
           isAuthenticated={isAuthenticated}
           symbolInfo={symbol}
+          symbolTradingViews={symbolTradingViews}
           configuration={configuration}
           sendWebSocket={this.sendWebSocket}
+          tradingViewIntervals={tradingViewIntervals}
         />
       );
     });
 
-    const symbolEstimates = symbols.map(symbol => {
-      return {
-        baseAsset: symbol.symbolInfo.baseAsset,
-        quoteAsset: symbol.symbolInfo.quoteAsset,
-        estimatedValue: symbol.baseAssetBalance.estimatedValue,
-        tickSize: symbol.symbolInfo.filterPrice.tickSize
-      };
+    const paginationItems = [];
+
+    paginationItems.push(
+      <Pagination.First
+        key='first'
+        disabled={page === 1 || totalPages === 1}
+        onClick={() => this.setPage(1)}
+      />
+    );
+    paginationItems.push(
+      <Pagination.Prev
+        key='pagination-item-prev'
+        onClick={() => this.setPage(page - 1)}
+        disabled={page === 1 || totalPages === 1}
+      />
+    );
+    const maxButtons = 8;
+    const buttons = Math.min(maxButtons, ~~totalPages);
+    [...Array(buttons).keys()].forEach(x => {
+      const pageNum = Math.min(
+        Math.max(x + 1, page + x + 1 - Math.ceil(buttons / 2)),
+        totalPages + x + 1 - buttons
+      );
+      paginationItems.push(
+        <Pagination.Item
+          active={pageNum === page}
+          disabled={pageNum > totalPages}
+          key={`pagination-item-${x}`}
+          onClick={() => this.setPage(pageNum)}>
+          {pageNum}
+        </Pagination.Item>
+      );
     });
+    paginationItems.push(
+      <Pagination.Next
+        key='pagination-item-next'
+        onClick={() => this.setPage(page + 1)}
+        disabled={page === totalPages || page >= totalPages}
+      />
+    );
+    const lastPage = totalPages;
+    paginationItems.push(
+      <Pagination.Last
+        key='last'
+        disabled={page === totalPages || page >= totalPages}
+        onClick={() => this.setPage(lastPage)}
+      />
+    );
 
     return (
       <React.Fragment>
@@ -292,6 +507,7 @@ class App extends React.Component {
           searchKeyword={searchKeyword}
           setSortOption={this.setSortOption}
           setSearchKeyword={this.setSearchKeyword}
+          tradingViewIntervals={tradingViewIntervals}
         />
         {_.isEmpty(configuration) === false ? (
           <div className='app-body'>
@@ -301,7 +517,8 @@ class App extends React.Component {
                 accountInfo={accountInfo}
                 dustTransfer={dustTransfer}
                 sendWebSocket={this.sendWebSocket}
-                quoteEstimates={symbolEstimates}
+                totalProfitAndLoss={totalProfitAndLoss}
+                setSearchKeyword={this.setSearchKeyword}
               />
               <ProfitLossWrapper
                 isAuthenticated={isAuthenticated}
@@ -309,13 +526,25 @@ class App extends React.Component {
                 closedTradesSetting={closedTradesSetting}
                 closedTrades={closedTrades}
                 sendWebSocket={this.sendWebSocket}
-                symbolEstimates={symbolEstimates}
+                totalProfitAndLoss={totalProfitAndLoss}
               />
-              <OrderStats orderStats={orderStats} />
+              <OrderStats
+                orderStats={orderStats}
+                selectedSortOption={selectedSortOption}
+                searchKeyword={searchKeyword}
+                setSearchKeyword={this.setSearchKeyword}
+              />
             </div>
+            <Pagination>{paginationItems}</Pagination>
             <div className='coin-wrappers'>{coinWrappers}</div>
+            <Pagination>{paginationItems}</Pagination>
             <div className='app-body-footer-wrapper'>
-              <Status apiInfo={apiInfo} />
+              <Status
+                apiInfo={apiInfo}
+                streamsCount={streamsCount}
+                monitoringSymbolsCount={monitoringSymbolsCount}
+                cachedMonitoringSymbolsCount={cachedMonitoringSymbolsCount}
+              />
             </div>
           </div>
         ) : (

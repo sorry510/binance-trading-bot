@@ -1,17 +1,7 @@
-const moment = require('moment');
+const { v4: uuidv4 } = require('uuid');
 const config = require('config');
-const {
-  getGlobalConfiguration
-} = require('./trailingTradeHelper/configuration');
 
-const {
-  cacheExchangeSymbols,
-  getAccountInfo,
-  lockSymbol,
-  isSymbolLocked,
-  unlockSymbol,
-  getAPILimit
-} = require('./trailingTradeHelper/common');
+const { getAccountInfo } = require('./trailingTradeHelper/common');
 
 const {
   getSymbolConfiguration,
@@ -32,15 +22,17 @@ const {
   removeLastBuyPrice,
   saveDataToCache
 } = require('./trailingTrade/steps');
-const { slack } = require('../helpers');
+const { errorHandlerWrapper } = require('../error-handler');
 
-const execute = async logger => {
-  try {
-    // Retrieve global configuration
-    const globalConfiguration = await getGlobalConfiguration(logger);
+const execute = async (rawLogger, symbol, correlationId = uuidv4()) => {
+  const logger = rawLogger.child({
+    jobName: 'trailingTrade',
+    correlationId,
+    symbol
+  });
 
-    // Retrieve exchange symbols and cache it
-    await cacheExchangeSymbols(logger, globalConfiguration);
+  await errorHandlerWrapper(logger, 'Trailing Trade', async () => {
+    logger.info({ debug: true }, '▶ TrailingTrade: Start process...');
 
     // Retrieve account info from cache
     const accountInfo = await getAccountInfo(logger);
@@ -48,169 +40,121 @@ const execute = async logger => {
     // Retrieve feature toggles
     const featureToggle = config.get('featureToggle');
 
-    await Promise.all(
-      globalConfiguration.symbols.map(async symbol => {
-        logger.info({ symbol }, '▶ TrailingTrade: Start process...');
+    // Define skeleton of data structure
+    let data = {
+      symbol,
+      featureToggle,
+      lastCandle: {},
+      accountInfo,
+      symbolConfiguration: {},
+      indicators: {},
+      symbolInfo: {},
+      openOrders: [],
+      action: 'not-determined',
+      baseAssetBalance: {},
+      quoteAssetBalance: {},
+      buy: {},
+      sell: {},
+      order: {},
+      canDisable: true,
+      saveToCache: true
+    };
 
-        // Check if the symbol is locked, if it is locked, it means the symbol is still processing.
-        const isLocked = await isSymbolLocked(logger, symbol);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const { stepName, stepFunc } of [
+      {
+        stepName: 'get-symbol-configuration',
+        stepFunc: getSymbolConfiguration
+      },
+      {
+        stepName: 'get-symbol-info',
+        stepFunc: getSymbolInfo
+      },
+      {
+        stepName: 'ensure-manual-order',
+        stepFunc: ensureManualOrder
+      },
+      {
+        stepName: 'ensure-grid-trade-order-executed',
+        stepFunc: ensureGridTradeOrderExecuted
+      },
+      {
+        stepName: 'get-balances',
+        stepFunc: getBalances
+      },
+      {
+        stepName: 'get-open-orders',
+        stepFunc: getOpenOrders
+      },
+      {
+        stepName: 'get-indicators',
+        stepFunc: getIndicators
+      },
+      {
+        stepName: 'get-override-action',
+        stepFunc: getOverrideAction
+      },
+      {
+        stepName: 'handle-open-orders',
+        stepFunc: handleOpenOrders
+      },
+      // In case account information is updated, get balance again.
+      {
+        stepName: 'get-balances',
+        stepFunc: getBalances
+      },
+      {
+        stepName: 'determine-action',
+        stepFunc: determineAction
+      },
+      {
+        stepName: 'place-manual-order',
+        stepFunc: placeManualTrade
+      },
+      {
+        stepName: 'cancel-order',
+        stepFunc: cancelOrder
+      },
+      {
+        stepName: 'place-buy-order',
+        stepFunc: placeBuyOrder
+      },
+      {
+        stepName: 'place-sell-order',
+        stepFunc: placeSellOrder
+      },
+      {
+        stepName: 'place-sell-stop-loss-order',
+        stepFunc: placeSellStopLossOrder
+      },
+      // In case account information is updated, get balance again.
+      {
+        stepName: 'get-balances',
+        stepFunc: getBalances
+      },
+      {
+        stepName: 'remove-last-buy-price',
+        stepFunc: removeLastBuyPrice
+      },
+      {
+        stepName: 'save-data-to-cache',
+        stepFunc: saveDataToCache
+      }
+    ]) {
+      const stepLogger = logger.child({ stepName });
 
-        if (isLocked === false) {
-          await lockSymbol(logger, symbol);
-        }
+      stepLogger.info({ data }, `Start step - ${stepName}`);
 
-        // Define sekeleton of data structure
-        let data = {
-          symbol,
-          isLocked,
-          featureToggle,
-          lastCandle: {},
-          accountInfo,
-          symbolConfiguration: {},
-          indicators: {},
-          symbolInfo: {},
-          openOrders: [],
-          action: 'not-determined',
-          baseAssetBalance: {},
-          quoteAssetBalance: {},
-          buy: {},
-          sell: {},
-          order: {},
-          canDisable: true,
-          saveToCache: true
-        };
+      // eslint-disable-next-line no-await-in-loop
+      data = await stepFunc(stepLogger, data);
 
-        // eslint-disable-next-line no-restricted-syntax
-        for (const { stepName, stepFunc } of [
-          {
-            stepName: 'get-symbol-configuration',
-            stepFunc: getSymbolConfiguration
-          },
-          {
-            stepName: 'get-symbol-info',
-            stepFunc: getSymbolInfo
-          },
-          {
-            stepName: 'ensure-manual-order',
-            stepFunc: ensureManualOrder
-          },
-          {
-            stepName: 'ensure-grid-trade-order-executed',
-            stepFunc: ensureGridTradeOrderExecuted
-          },
-          {
-            stepName: 'get-balances',
-            stepFunc: getBalances
-          },
-          {
-            stepName: 'get-open-orders',
-            stepFunc: getOpenOrders
-          },
-          {
-            stepName: 'get-indicators',
-            stepFunc: getIndicators
-          },
-          {
-            stepName: 'get-override-action',
-            stepFunc: getOverrideAction
-          },
-          {
-            stepName: 'handle-open-orders',
-            stepFunc: handleOpenOrders
-          },
-          // In case account information is updated, get balance again.
-          {
-            stepName: 'get-balances',
-            stepFunc: getBalances
-          },
-          {
-            stepName: 'determine-action',
-            stepFunc: determineAction
-          },
-          {
-            stepName: 'place-manual-order',
-            stepFunc: placeManualTrade
-          },
-          {
-            stepName: 'cancel-order',
-            stepFunc: cancelOrder
-          },
-          {
-            stepName: 'place-buy-order',
-            stepFunc: placeBuyOrder
-          },
-          {
-            stepName: 'place-sell-order',
-            stepFunc: placeSellOrder
-          },
-          {
-            stepName: 'place-sell-stop-loss-order',
-            stepFunc: placeSellStopLossOrder
-          },
-          // In case account information is updated, get balance again.
-          {
-            stepName: 'get-balances',
-            stepFunc: getBalances
-          },
-          {
-            stepName: 'remove-last-buy-price',
-            stepFunc: removeLastBuyPrice
-          },
-          {
-            stepName: 'save-data-to-cache',
-            stepFunc: saveDataToCache
-          }
-        ]) {
-          const stepLogger = logger.child({ stepName, symbol: data.symbol });
-
-          stepLogger.info({ data }, `Start step - ${stepName}`);
-
-          // eslint-disable-next-line no-await-in-loop
-          data = await stepFunc(stepLogger, data);
-
-          stepLogger.info({ data }, `Finish step - ${stepName}`);
-        }
-
-        // Unlock symbol for processing if it is not locked by another process
-        if (isLocked === false) {
-          await unlockSymbol(logger, symbol);
-        }
-
-        logger.info({ symbol }, '⏹ TrailingTrade: Finish process (Debug)...');
-
-        logger.info({ symbol, data }, 'TrailingTrade: Finish process...');
-      })
-    );
-  } catch (err) {
-    // For the redlock fail
-    if (err.message.includes('redlock')) {
-      // Simply ignore
-      return;
+      stepLogger.info({ data }, `Finish step - ${stepName}`);
     }
 
-    logger.error({ err, errorCode: err.code }, `⚠ Execution failed.`);
-    if (
-      err.code === -1001 ||
-      err.code === -1021 || // Timestamp for this request is outside of the recvWindow
-      err.code === 'ECONNRESET' ||
-      err.code === 'ECONNREFUSED'
-    ) {
-      // Let's silent for internal server error or assumed temporary errors
-    } else {
-      slack.sendMessage(
-        `Execution failed (${moment().format('HH:mm:ss.SSS')})\n` +
-          `Job: Trailing Trade\n` +
-          `Code: ${err.code}\n` +
-          `Message:\`\`\`${err.message}\`\`\`\n` +
-          `${
-            config.get('featureToggle.notifyDebug')
-              ? `Stack:\`\`\`${err.stack}\`\`\`\n`
-              : ''
-          }` +
-          `- Current API Usage: ${getAPILimit(logger)}`
-      );
-    }
-  }
+    logger.info({ debug: true }, '⏹ TrailingTrade: Finish process (Debug)...');
+
+    logger.info({ data }, 'TrailingTrade: Finish process...');
+  });
 };
 
 module.exports = { execute };

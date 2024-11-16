@@ -1,37 +1,91 @@
 /* eslint-disable global-require */
+// eslint-disable-next-line max-classes-per-file
+const { logger } = require('../helpers');
 
 describe('server-binance', () => {
-  let config;
-
-  let PubSubMock;
-  let binanceMock;
-  let loggerMock;
-  let cacheMock;
-  let slackMock;
+  let mockPubSub;
+  let mockCache;
+  let mockMongo;
+  let mockQueue;
 
   let mockGetGlobalConfiguration;
 
-  let mockWebsocketCandlesClean;
-  let mockGetAccountInfo;
+  let mockGetAccountInfoFromAPI;
+  let mockCacheExchangeSymbols;
+
+  let mockSetupUserWebsocket;
+
+  let mockSyncCandles;
+  let mockSetupCandlesWebsocket;
+  let mockGetWebsocketCandlesClean;
+
+  let mockSyncATHCandles;
+  let mockSetupATHCandlesWebsocket;
+  let mockGetWebsocketATHCandlesClean;
+
+  let mockSetupTickersWebsocket;
+  let mockRefreshTickersClean;
+  let mockGetWebsocketTickersClean;
+
+  let mockSyncOpenOrders;
+  let mockSyncDatabaseOrders;
+
+  let mockSlack;
+  let config;
 
   beforeEach(async () => {
     jest.clearAllMocks().resetModules();
     jest.useFakeTimers();
+
     jest.mock('config');
-
-    const { PubSub, binance, logger, cache, slack } = require('../helpers');
-
-    PubSubMock = PubSub;
-    binanceMock = binance;
-    loggerMock = logger;
-    cacheMock = cache;
-    slackMock = slack;
+    jest.mock('../cronjob');
 
     config = require('config');
+
+    mockCache = {
+      hget: jest
+        .fn()
+        .mockResolvedValue(
+          JSON.stringify(require('./fixtures/exchange-symbols.json'))
+        ),
+      hset: jest.fn().mockResolvedValue(true),
+      hgetall: jest.fn()
+    };
+    mockMongo = {
+      deleteAll: jest.fn().mockResolvedValue(true)
+    };
+    mockQueue = {
+      prepareJob: jest.fn().mockResolvedValue(true),
+      execute: jest.fn().mockResolvedValue(true),
+      completeJob: jest.fn().mockResolvedValue(true)
+    };
+    mockSlack = {
+      sendMessage: jest.fn().mockResolvedValue(true)
+    };
+    mockPubSub = {
+      subscribe: jest.fn(),
+      publish: jest.fn()
+    };
+
+    jest.mock('../helpers', () => ({
+      logger: {
+        info: jest.fn(),
+        error: jest.fn(),
+        warn: jest.fn(),
+        debug: jest.fn(),
+        child: jest.fn()
+      },
+      slack: mockSlack,
+      mongo: mockMongo,
+      PubSub: mockPubSub,
+      cache: mockCache
+    }));
+
+    jest.mock('../cronjob/trailingTradeHelper/queue', () => mockQueue);
   });
 
   describe('when the bot is running live mode', () => {
-    describe('when websocket candles clean is null', () => {
+    describe('when the bot just started', () => {
       beforeEach(async () => {
         config.get = jest.fn(key => {
           switch (key) {
@@ -42,73 +96,83 @@ describe('server-binance', () => {
           }
         });
 
+        mockSetupUserWebsocket = jest.fn().mockResolvedValue(true);
+
+        mockSyncCandles = jest.fn().mockResolvedValue(true);
+        mockSetupCandlesWebsocket = jest.fn().mockResolvedValue(true);
+        mockGetWebsocketCandlesClean = jest.fn().mockResolvedValue(1);
+
+        mockSyncATHCandles = jest.fn().mockResolvedValue(true);
+        mockSetupATHCandlesWebsocket = jest.fn().mockResolvedValue(true);
+        mockGetWebsocketATHCandlesClean = jest.fn().mockResolvedValue(1);
+
+        mockSetupTickersWebsocket = jest.fn().mockResolvedValue(true);
+        mockRefreshTickersClean = jest.fn().mockResolvedValue(true);
+        mockGetWebsocketTickersClean = jest.fn().mockResolvedValue(1);
+
+        mockSyncOpenOrders = jest.fn().mockResolvedValue(true);
+        mockSyncDatabaseOrders = jest.fn().mockResolvedValue(true);
+
         mockGetGlobalConfiguration = jest.fn().mockResolvedValue({
           symbols: ['BTCUSDT', 'BNBUSDT']
         });
 
-        mockGetAccountInfo = jest.fn().mockResolvedValue({
-          balances: [
-            {
-              asset: 'BTC'
-            },
-            {
-              asset: 'BNB'
-            },
-            {
-              asset: 'ETH'
-            },
-            {
-              asset: 'USDT'
-            }
-          ]
+        mockGetAccountInfoFromAPI = jest.fn().mockResolvedValue({
+          account: 'info'
         });
+
+        mockCacheExchangeSymbols = jest.fn().mockResolvedValue(true);
 
         jest.mock('../cronjob/trailingTradeHelper/configuration', () => ({
           getGlobalConfiguration: mockGetGlobalConfiguration
         }));
 
         jest.mock('../cronjob/trailingTradeHelper/common', () => ({
-          getAccountInfo: mockGetAccountInfo
+          getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
+          cacheExchangeSymbols: mockCacheExchangeSymbols
         }));
 
-        mockWebsocketCandlesClean = jest.fn().mockResolvedValue(true);
-        PubSubMock.subscribe = jest.fn().mockImplementation((_key, cb) => {
-          cb('message', 'data');
-        });
+        jest.mock('../binance/user', () => ({
+          setupUserWebsocket: mockSetupUserWebsocket
+        }));
 
-        cacheMock.hget = jest
-          .fn()
-          .mockResolvedValue(
-            JSON.stringify(require('./fixtures/exchange-symbols.json'))
-          );
-        cacheMock.hset = jest.fn().mockResolvedValue(true);
+        jest.mock('../binance/orders', () => ({
+          syncOpenOrders: mockSyncOpenOrders,
+          syncDatabaseOrders: mockSyncDatabaseOrders
+        }));
 
-        binanceMock.client.ws.candles = jest
-          .fn()
-          .mockImplementation((_symbols, _interval, cb) => {
-            cb({
-              symbol: 'BTCUSDT'
-            });
-            cb({
-              symbol: 'BNBBTC'
-            });
-          });
+        jest.mock('../binance/candles', () => ({
+          syncCandles: mockSyncCandles,
+          setupCandlesWebsocket: mockSetupCandlesWebsocket,
+          getWebsocketCandlesClean: mockGetWebsocketCandlesClean
+        }));
+
+        jest.mock('../binance/ath-candles', () => ({
+          syncATHCandles: mockSyncATHCandles,
+          setupATHCandlesWebsocket: mockSetupATHCandlesWebsocket,
+          getWebsocketATHCandlesClean: mockGetWebsocketATHCandlesClean
+        }));
+
+        jest.mock('../binance/tickers', () => ({
+          setupTickersWebsocket: mockSetupTickersWebsocket,
+          refreshTickersClean: mockRefreshTickersClean,
+          getWebsocketTickersClean: mockGetWebsocketTickersClean
+        }));
 
         const { runBinance } = require('../server-binance');
-        await runBinance(loggerMock);
+        await runBinance(logger);
       });
 
-      it('triggers binanceMock.client.ws.candles', () => {
-        expect(binanceMock.client.ws.candles).toHaveBeenCalledWith(
-          ['BTCUSDT', 'BNBUSDT', 'BNBBTC', 'ETHBTC'],
-          '1m',
+      it('triggers PubSub.subscribe for reset-all-websockets', () => {
+        expect(mockPubSub.subscribe).toHaveBeenCalledWith(
+          'reset-all-websockets',
           expect.any(Function)
         );
       });
 
-      it('triggers PubSub.subscribe', () => {
-        expect(PubSubMock.subscribe).toHaveBeenCalledWith(
-          'reset-binance-websocket',
+      it('triggers PubSub.subscribe for reset-symbol-websockets', () => {
+        expect(mockPubSub.subscribe).toHaveBeenCalledWith(
+          'reset-symbol-websockets',
           expect.any(Function)
         );
       });
@@ -117,413 +181,404 @@ describe('server-binance', () => {
         expect(mockGetGlobalConfiguration).toHaveBeenCalled();
       });
 
-      it('does not trigger websocketCandlesClean', () => {
-        expect(mockWebsocketCandlesClean).not.toHaveBeenCalled();
+      it('triggers getAccountInfoFromAPI', () => {
+        expect(mockGetAccountInfoFromAPI).toHaveBeenCalled();
       });
 
-      ['BTCUSDT', 'BNBBTC'].forEach(symbol => {
-        it('triggers cache.hset', () => {
-          expect(cacheMock.hset).toHaveBeenCalledWith(
-            'trailing-trade-symbols',
-            `${symbol}-latest-candle`,
-            JSON.stringify({ symbol })
-          );
-        });
-      });
-    });
-
-    describe('when exchange symbols are not cached', () => {
-      beforeEach(async () => {
-        config.get = jest.fn(key => {
-          switch (key) {
-            case 'mode':
-              return 'live';
-            default:
-              return `value-${key}`;
-          }
-        });
-
-        mockGetGlobalConfiguration = jest.fn().mockResolvedValue({
-          symbols: ['BTCUSDT', 'BNBUSDT']
-        });
-
-        mockGetAccountInfo = jest.fn().mockResolvedValue({
-          balances: [
-            {
-              asset: 'BTC'
-            },
-            {
-              asset: 'BNB'
-            },
-            {
-              asset: 'ETH'
-            },
-            {
-              asset: 'USDT'
-            }
-          ]
-        });
-
-        jest.mock('../cronjob/trailingTradeHelper/configuration', () => ({
-          getGlobalConfiguration: mockGetGlobalConfiguration
-        }));
-
-        jest.mock('../cronjob/trailingTradeHelper/common', () => ({
-          getAccountInfo: mockGetAccountInfo
-        }));
-
-        mockWebsocketCandlesClean = jest.fn().mockResolvedValue(true);
-        PubSubMock.subscribe = jest.fn().mockImplementation((_key, cb) => {
-          cb('message', 'data');
-        });
-
-        cacheMock.hget = jest.fn().mockResolvedValue(null);
-        cacheMock.hset = jest.fn().mockResolvedValue(true);
-
-        binanceMock.client.ws.candles = jest
-          .fn()
-          .mockImplementation((_symbols, _interval, cb) => {
-            cb({
-              symbol: 'BTCUSDT'
-            });
-            cb({
-              symbol: 'BNBBTC'
-            });
-          });
-
-        const { runBinance } = require('../server-binance');
-        await runBinance(loggerMock);
-      });
-
-      it('triggers binanceMock.client.ws.candles', () => {
-        expect(binanceMock.client.ws.candles).toHaveBeenCalledWith(
-          ['BTCUSDT', 'BNBUSDT'],
-          '1m',
-          expect.any(Function)
+      it('triggers refreshCandles', () => {
+        expect(mockMongo.deleteAll).toHaveBeenCalledWith(
+          logger,
+          'trailing-trade-candles',
+          {}
+        );
+        expect(mockMongo.deleteAll).toHaveBeenCalledWith(
+          logger,
+          'trailing-trade-ath-candles',
+          {}
         );
       });
 
-      it('triggers PubSub.subscribe', () => {
-        expect(PubSubMock.subscribe).toHaveBeenCalledWith(
-          'reset-binance-websocket',
-          expect.any(Function)
-        );
+      it('triggers syncCandles', () => {
+        expect(mockSyncCandles).toHaveBeenCalledWith(logger, [
+          'BTCUSDT',
+          'BNBUSDT'
+        ]);
       });
 
-      it('triggers getGlobalConfiguration', () => {
-        expect(mockGetGlobalConfiguration).toHaveBeenCalled();
+      it('triggers syncATHCandles', () => {
+        expect(mockSyncATHCandles).toHaveBeenCalledWith(logger, [
+          'BTCUSDT',
+          'BNBUSDT'
+        ]);
       });
 
-      it('does not trigger websocketCandlesClean', () => {
-        expect(mockWebsocketCandlesClean).not.toHaveBeenCalled();
+      it('triggers syncOpenOrders', () => {
+        expect(mockSyncOpenOrders).toHaveBeenCalledWith(logger, [
+          'BTCUSDT',
+          'BNBUSDT'
+        ]);
       });
 
-      ['BTCUSDT', 'BNBBTC'].forEach(symbol => {
-        it('triggers cache.hset', () => {
-          expect(cacheMock.hset).toHaveBeenCalledWith(
-            'trailing-trade-symbols',
-            `${symbol}-latest-candle`,
-            JSON.stringify({ symbol })
-          );
-        });
-      });
-    });
-
-    describe('when websocket candles clean is not null', () => {
-      beforeEach(async () => {
-        config.get = jest.fn(key => {
-          switch (key) {
-            case 'mode':
-              return 'live';
-            default:
-              return `value-${key}`;
-          }
-        });
-
-        mockGetGlobalConfiguration = jest.fn().mockResolvedValue({
-          symbols: ['BTCUSDT', 'BNBUSDT']
-        });
-
-        mockGetAccountInfo = jest.fn().mockResolvedValue({
-          balances: [
-            {
-              asset: 'BTC'
-            },
-            {
-              asset: 'BNB'
-            },
-            {
-              asset: 'ETH'
-            },
-            {
-              asset: 'USDT'
-            }
-          ]
-        });
-
-        jest.mock('../cronjob/trailingTradeHelper/configuration', () => ({
-          getGlobalConfiguration: mockGetGlobalConfiguration
-        }));
-
-        jest.mock('../cronjob/trailingTradeHelper/common', () => ({
-          getAccountInfo: mockGetAccountInfo
-        }));
-
-        mockWebsocketCandlesClean = jest.fn().mockResolvedValue(true);
-        PubSubMock.subscribe = jest.fn().mockImplementation((_key, cb) => {
-          cb('message', 'data');
-        });
-
-        cacheMock.hget = jest
-          .fn()
-          .mockResolvedValue(
-            JSON.stringify(require('./fixtures/exchange-symbols.json'))
-          );
-        cacheMock.hset = jest.fn().mockResolvedValue(true);
-
-        binanceMock.client.ws.candles = jest
-          .fn()
-          .mockImplementation((_symbols, _interval, cb) => {
-            cb({
-              symbol: 'BTCUSDT'
-            });
-
-            cb({
-              symbol: 'BNBBTC'
-            });
-
-            return mockWebsocketCandlesClean;
-          });
-
-        const { runBinance } = require('../server-binance');
-
-        await runBinance(loggerMock);
-
-        await runBinance(loggerMock);
-      });
-
-      it('triggers PubSub.subscribe', () => {
-        expect(PubSubMock.subscribe).toHaveBeenCalledWith(
-          'reset-binance-websocket',
-          expect.any(Function)
-        );
-      });
-
-      it('triggers getGlobalConfiguration', () => {
-        expect(mockGetGlobalConfiguration).toHaveBeenCalled();
-      });
-
-      it('triggers websocketCandlesClean', () => {
-        expect(mockWebsocketCandlesClean).toHaveBeenCalled();
+      it('triggers syncDatabaseOrders', () => {
+        expect(mockSyncDatabaseOrders).toHaveBeenCalledWith(logger);
       });
 
       it('triggers cache.hset', () => {
-        expect(cacheMock.hset).toHaveBeenCalledWith(
-          'trailing-trade-symbols',
-          'BTCUSDT-latest-candle',
-          JSON.stringify({ symbol: 'BTCUSDT' })
+        expect(mockCache.hset).toHaveBeenCalledWith(
+          'trailing-trade-streams',
+          `count`,
+          1
+        );
+      });
+
+      it('triggers queue.prepareJob', () => {
+        expect(mockQueue.prepareJob).toHaveBeenCalled();
+      });
+
+      it('triggers queue.completeJob', () => {
+        expect(mockQueue.completeJob).toHaveBeenCalled();
+      });
+    });
+
+    describe('calculates number of open streams', () => {
+      beforeEach(async () => {
+        config.get = jest.fn(key => {
+          switch (key) {
+            case 'mode':
+              return 'live';
+            default:
+              return `value-${key}`;
+          }
+        });
+
+        mockSetupUserWebsocket = jest.fn().mockResolvedValue(true);
+
+        mockSyncCandles = jest.fn().mockResolvedValue(true);
+        mockSetupCandlesWebsocket = jest.fn().mockResolvedValue(true);
+        mockGetWebsocketCandlesClean = jest
+          .fn()
+          .mockImplementation(() => ({ '1h': () => true }));
+
+        mockSyncATHCandles = jest.fn().mockResolvedValue(true);
+        mockSetupATHCandlesWebsocket = jest.fn().mockResolvedValue(true);
+
+        mockGetWebsocketATHCandlesClean = jest
+          .fn()
+          .mockImplementation(() => ({ '1d': () => true, '30m': () => true }));
+
+        mockSetupTickersWebsocket = jest.fn().mockResolvedValue(true);
+        mockRefreshTickersClean = jest.fn().mockResolvedValue(true);
+        mockGetWebsocketTickersClean = jest.fn().mockImplementation(() => ({
+          BTCUSDT: () => true,
+          BNBUSDT: () => true
+        }));
+
+        mockSyncOpenOrders = jest.fn().mockResolvedValue(true);
+        mockSyncDatabaseOrders = jest.fn().mockResolvedValue(true);
+
+        mockGetGlobalConfiguration = jest.fn().mockResolvedValue({
+          symbols: ['BTCUSDT', 'BNBUSDT']
+        });
+
+        mockGetAccountInfoFromAPI = jest.fn().mockResolvedValue({
+          account: 'info'
+        });
+
+        mockCacheExchangeSymbols = jest.fn().mockResolvedValue(true);
+
+        jest.mock('../cronjob/trailingTradeHelper/configuration', () => ({
+          getGlobalConfiguration: mockGetGlobalConfiguration
+        }));
+
+        jest.mock('../cronjob/trailingTradeHelper/common', () => ({
+          getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
+          cacheExchangeSymbols: mockCacheExchangeSymbols
+        }));
+
+        jest.mock('../binance/user', () => ({
+          setupUserWebsocket: mockSetupUserWebsocket
+        }));
+
+        jest.mock('../binance/orders', () => ({
+          syncOpenOrders: mockSyncOpenOrders,
+          syncDatabaseOrders: mockSyncDatabaseOrders
+        }));
+
+        jest.mock('../binance/candles', () => ({
+          syncCandles: mockSyncCandles,
+          setupCandlesWebsocket: mockSetupCandlesWebsocket,
+          getWebsocketCandlesClean: mockGetWebsocketCandlesClean
+        }));
+
+        jest.mock('../binance/ath-candles', () => ({
+          syncATHCandles: mockSyncATHCandles,
+          setupATHCandlesWebsocket: mockSetupATHCandlesWebsocket,
+          getWebsocketATHCandlesClean: mockGetWebsocketATHCandlesClean
+        }));
+
+        jest.mock('../binance/tickers', () => ({
+          setupTickersWebsocket: mockSetupTickersWebsocket,
+          refreshTickersClean: mockRefreshTickersClean,
+          getWebsocketTickersClean: mockGetWebsocketTickersClean
+        }));
+
+        const { runBinance } = require('../server-binance');
+
+        await runBinance(logger);
+      });
+
+      it('triggers getWebsocketTickersClean', () => {
+        expect(mockGetWebsocketTickersClean).toHaveBeenCalled();
+      });
+
+      it('triggers getWebsocketATHCandlesClean', () => {
+        expect(mockGetWebsocketATHCandlesClean).toHaveBeenCalled();
+      });
+
+      it('triggers getWebsocketCandlesClean', () => {
+        expect(mockGetWebsocketCandlesClean).toHaveBeenCalled();
+      });
+
+      it('triggers cacheExchangeSymbols', () => {
+        expect(mockCacheExchangeSymbols).toHaveBeenCalled();
+      });
+
+      it('triggers cache.hset', () => {
+        expect(mockCache.hset).toHaveBeenCalledWith(
+          'trailing-trade-streams',
+          `count`,
+          1 + 5
         );
       });
     });
 
-    describe('when lastReceivedAt passed timeout', () => {
-      describe('when notifyDebug is on', () => {
-        let dateNow = new Date('2021-05-07T00:00:00Z').valueOf();
-        beforeEach(async () => {
-          config.get = jest.fn(key => {
-            switch (key) {
-              case 'mode':
-                return 'live';
-              case 'featureToggle.notifyDebug':
-                return true;
-              default:
-                return `value-${key}`;
-            }
-          });
+    describe('when data received in check-open-orders channel', () => {
+      beforeEach(async () => {
+        config.get = jest.fn(key => {
+          switch (key) {
+            case 'mode':
+              return 'live';
+            default:
+              return `value-${key}`;
+          }
+        });
 
-          // Mock Date.now for manipulating moment.js
-          Date.now = jest.fn(() => {
-            const tmpDateNow = dateNow;
-            dateNow += 60000;
-            return tmpDateNow;
-          });
-          slackMock.sendMessage = jest.fn();
+        mockSetupUserWebsocket = jest.fn().mockResolvedValue(true);
 
-          mockGetGlobalConfiguration = jest.fn().mockResolvedValue({
-            symbols: ['BTCUSDT', 'BNBUSDT']
-          });
+        mockSyncCandles = jest.fn().mockResolvedValue(true);
+        mockSetupCandlesWebsocket = jest.fn().mockResolvedValue(true);
+        mockGetWebsocketCandlesClean = jest
+          .fn()
+          .mockImplementation(() => ({ '1h': () => true }));
 
-          mockGetAccountInfo = jest.fn().mockResolvedValue({
-            balances: [
-              {
-                asset: 'BTC'
-              },
-              {
-                asset: 'BNB'
-              },
-              {
-                asset: 'ETH'
-              },
-              {
-                asset: 'USDT'
-              }
-            ]
-          });
+        mockSyncATHCandles = jest.fn().mockResolvedValue(true);
+        mockSetupATHCandlesWebsocket = jest.fn().mockResolvedValue(true);
 
-          jest.mock('../cronjob/trailingTradeHelper/configuration', () => ({
-            getGlobalConfiguration: mockGetGlobalConfiguration
-          }));
+        mockGetWebsocketATHCandlesClean = jest
+          .fn()
+          .mockImplementation(() => ({ '1d': () => true, '30m': () => true }));
 
-          jest.mock('../cronjob/trailingTradeHelper/common', () => ({
-            getAccountInfo: mockGetAccountInfo
-          }));
+        mockSetupTickersWebsocket = jest.fn().mockResolvedValue(true);
+        mockRefreshTickersClean = jest.fn().mockResolvedValue(true);
+        mockGetWebsocketTickersClean = jest.fn().mockImplementation(() => ({
+          BTCUSDT: () => true,
+          BNBUSDT: () => true
+        }));
 
-          mockWebsocketCandlesClean = jest.fn().mockResolvedValue(true);
-          PubSubMock.subscribe = jest.fn().mockImplementation((_key, cb) => {
+        mockSyncOpenOrders = jest.fn().mockResolvedValue(true);
+        mockSyncDatabaseOrders = jest.fn().mockResolvedValue(true);
+
+        mockGetGlobalConfiguration = jest.fn().mockResolvedValue({
+          symbols: ['BTCUSDT', 'BNBUSDT']
+        });
+
+        mockGetAccountInfoFromAPI = jest.fn().mockResolvedValue({
+          account: 'info'
+        });
+
+        mockCacheExchangeSymbols = jest.fn().mockResolvedValue(true);
+
+        jest.mock('../cronjob/trailingTradeHelper/configuration', () => ({
+          getGlobalConfiguration: mockGetGlobalConfiguration
+        }));
+
+        jest.mock('../cronjob/trailingTradeHelper/common', () => ({
+          getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
+          cacheExchangeSymbols: mockCacheExchangeSymbols
+        }));
+
+        jest.mock('../binance/user', () => ({
+          setupUserWebsocket: mockSetupUserWebsocket
+        }));
+
+        jest.mock('../binance/orders', () => ({
+          syncOpenOrders: mockSyncOpenOrders,
+          syncDatabaseOrders: mockSyncDatabaseOrders
+        }));
+
+        jest.mock('../binance/candles', () => ({
+          syncCandles: mockSyncCandles,
+          setupCandlesWebsocket: mockSetupCandlesWebsocket,
+          getWebsocketCandlesClean: mockGetWebsocketCandlesClean
+        }));
+
+        jest.mock('../binance/ath-candles', () => ({
+          syncATHCandles: mockSyncATHCandles,
+          setupATHCandlesWebsocket: mockSetupATHCandlesWebsocket,
+          getWebsocketATHCandlesClean: mockGetWebsocketATHCandlesClean
+        }));
+
+        jest.mock('../binance/tickers', () => ({
+          setupTickersWebsocket: mockSetupTickersWebsocket,
+          refreshTickersClean: mockRefreshTickersClean,
+          getWebsocketTickersClean: mockGetWebsocketTickersClean
+        }));
+
+        mockPubSub.subscribe = jest.fn().mockImplementation((key, cb) => {
+          if (key === 'check-open-orders') {
             cb('message', 'data');
-          });
-
-          cacheMock.hget = jest
-            .fn()
-            .mockResolvedValue(
-              JSON.stringify(require('./fixtures/exchange-symbols.json'))
-            );
-          cacheMock.hset = jest.fn().mockResolvedValue(true);
-
-          binanceMock.client.ws.candles = jest
-            .fn()
-            .mockImplementationOnce((_symbols, _interval, cb) => {
-              cb({
-                symbol: 'BTCUSDT'
-              });
-
-              return mockWebsocketCandlesClean;
-            });
-
-          const { runBinance } = require('../server-binance');
-
-          await runBinance(loggerMock);
-          jest.advanceTimersByTime(2000);
-        });
-
-        it('triggers cache.hset', () => {
-          expect(cacheMock.hset).toHaveBeenCalledWith(
-            'trailing-trade-symbols',
-            'BTCUSDT-latest-candle',
-            JSON.stringify({ symbol: 'BTCUSDT' })
-          );
-        });
-
-        it('triggers cache.hset once', () => {
-          expect(cacheMock.hset).toHaveBeenCalledTimes(1);
-        });
-
-        it('triggers PubSub.subscribe twice', () => {
-          expect(PubSubMock.subscribe).toHaveBeenCalledTimes(2);
-        });
-
-        it('triggers slack.sendMessage', () => {
-          expect(slackMock.sendMessage).toHaveBeenCalled();
+          }
         });
       });
 
-      describe('when notifyDebug is not on', () => {
-        let dateNow = new Date('2021-05-07T00:00:00Z').valueOf();
+      describe('when open orders empty', () => {
         beforeEach(async () => {
-          config.get = jest.fn(key => {
-            switch (key) {
-              case 'mode':
-                return 'live';
-              case 'featureToggle.notifyDebug':
-                return false;
-              default:
-                return `value-${key}`;
-            }
-          });
-
-          // Mock Date.now for manipulating moment.js
-          Date.now = jest.fn(() => {
-            const tmpDateNow = dateNow;
-            dateNow += 60000;
-            return tmpDateNow;
-          });
-          slackMock.sendMessage = jest.fn();
-
-          mockGetGlobalConfiguration = jest.fn().mockResolvedValue({
-            symbols: ['BTCUSDT', 'BNBUSDT']
-          });
-
-          mockGetAccountInfo = jest.fn().mockResolvedValue({
-            balances: [
-              {
-                asset: 'BTC'
-              },
-              {
-                asset: 'BNB'
-              },
-              {
-                asset: 'ETH'
-              },
-              {
-                asset: 'USDT'
-              }
-            ]
-          });
-
-          jest.mock('../cronjob/trailingTradeHelper/configuration', () => ({
-            getGlobalConfiguration: mockGetGlobalConfiguration
-          }));
-
-          jest.mock('../cronjob/trailingTradeHelper/common', () => ({
-            getAccountInfo: mockGetAccountInfo
-          }));
-
-          mockWebsocketCandlesClean = jest.fn().mockResolvedValue(true);
-          PubSubMock.subscribe = jest.fn().mockImplementation((_key, cb) => {
-            cb('message', 'data');
-          });
-          cacheMock.hget = jest
-            .fn()
-            .mockResolvedValue(
-              JSON.stringify(require('./fixtures/exchange-symbols.json'))
-            );
-          cacheMock.hset = jest.fn().mockResolvedValue(true);
-
-          binanceMock.client.ws.candles = jest
-            .fn()
-            .mockImplementationOnce((_symbols, _interval, cb) => {
-              cb({
-                symbol: 'BTCUSDT'
-              });
-
-              return mockWebsocketCandlesClean;
-            });
+          mockCache.hgetall = jest.fn().mockResolvedValue(null);
 
           const { runBinance } = require('../server-binance');
-
-          await runBinance(loggerMock);
-          jest.advanceTimersByTime(2000);
+          await runBinance(logger);
         });
 
-        it('triggers cache.hset', () => {
-          expect(cacheMock.hset).toHaveBeenCalledWith(
-            'trailing-trade-symbols',
-            'BTCUSDT-latest-candle',
-            JSON.stringify({ symbol: 'BTCUSDT' })
-          );
+        it('does not trigger queue.execute', () => {
+          expect(mockQueue.execute).not.toHaveBeenCalled();
+        });
+      });
+
+      describe('when open orders not empty', () => {
+        beforeEach(async () => {
+          mockCache.hgetall = jest.fn().mockResolvedValue({
+            BTCUSDT: [{ orderId: 1, symbol: 'BTCUSDT' }],
+            LTCUSDT: [{ orderId: 1, symbol: 'LTCUSDT' }]
+          });
+
+          const { runBinance } = require('../server-binance');
+          await runBinance(logger);
         });
 
-        it('triggers cache.hset once', () => {
-          expect(cacheMock.hset).toHaveBeenCalledTimes(1);
+        it('triggers queue.execute twice', () => {
+          expect(mockQueue.execute).toHaveBeenCalledTimes(2);
         });
 
-        it('triggers PubSub.subscribe twice', () => {
-          expect(PubSubMock.subscribe).toHaveBeenCalledTimes(2);
+        it('triggers queue.execute for BTCUSDT', () => {
+          expect(mockQueue.execute).toHaveBeenCalledWith(logger, 'BTCUSDT', {
+            processFn: expect.any(Function)
+          });
         });
 
-        it('does not trigger slack.sendMessage', () => {
-          expect(slackMock.sendMessage).not.toHaveBeenCalled();
+        it('triggers queue.execute for LTCUSDT', () => {
+          expect(mockQueue.execute).toHaveBeenCalledWith(logger, 'LTCUSDT', {
+            processFn: expect.any(Function)
+          });
         });
+      });
+    });
+
+    describe('when data received in reset-symbol-websockets channel', () => {
+      beforeEach(async () => {
+        config.get = jest.fn(key => {
+          switch (key) {
+            case 'mode':
+              return 'live';
+            default:
+              return `value-${key}`;
+          }
+        });
+
+        mockSetupUserWebsocket = jest.fn().mockResolvedValue(true);
+
+        mockSyncCandles = jest.fn().mockResolvedValue(true);
+        mockSetupCandlesWebsocket = jest.fn().mockResolvedValue(true);
+        mockGetWebsocketCandlesClean = jest
+          .fn()
+          .mockImplementation(() => ({ '1h': () => true }));
+
+        mockSyncATHCandles = jest.fn().mockResolvedValue(true);
+        mockSetupATHCandlesWebsocket = jest.fn().mockResolvedValue(true);
+
+        mockGetWebsocketATHCandlesClean = jest
+          .fn()
+          .mockImplementation(() => ({ '1d': () => true, '30m': () => true }));
+
+        mockSetupTickersWebsocket = jest.fn().mockResolvedValue(true);
+        mockRefreshTickersClean = jest.fn().mockResolvedValue(true);
+        mockGetWebsocketTickersClean = jest.fn().mockImplementation(() => ({
+          BTCUSDT: () => true,
+          BNBUSDT: () => true
+        }));
+
+        mockSyncOpenOrders = jest.fn().mockResolvedValue(true);
+        mockSyncDatabaseOrders = jest.fn().mockResolvedValue(true);
+
+        mockGetGlobalConfiguration = jest.fn().mockResolvedValue({
+          symbols: ['BTCUSDT', 'BNBUSDT']
+        });
+
+        mockGetAccountInfoFromAPI = jest.fn().mockResolvedValue({
+          account: 'info'
+        });
+
+        mockCacheExchangeSymbols = jest.fn().mockResolvedValue(true);
+
+        jest.mock('../cronjob/trailingTradeHelper/configuration', () => ({
+          getGlobalConfiguration: mockGetGlobalConfiguration
+        }));
+
+        jest.mock('../cronjob/trailingTradeHelper/common', () => ({
+          getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
+          cacheExchangeSymbols: mockCacheExchangeSymbols
+        }));
+
+        jest.mock('../binance/user', () => ({
+          setupUserWebsocket: mockSetupUserWebsocket
+        }));
+
+        jest.mock('../binance/orders', () => ({
+          syncOpenOrders: mockSyncOpenOrders,
+          syncDatabaseOrders: mockSyncDatabaseOrders
+        }));
+
+        jest.mock('../binance/candles', () => ({
+          syncCandles: mockSyncCandles,
+          setupCandlesWebsocket: mockSetupCandlesWebsocket,
+          getWebsocketCandlesClean: mockGetWebsocketCandlesClean
+        }));
+
+        jest.mock('../binance/ath-candles', () => ({
+          syncATHCandles: mockSyncATHCandles,
+          setupATHCandlesWebsocket: mockSetupATHCandlesWebsocket,
+          getWebsocketATHCandlesClean: mockGetWebsocketATHCandlesClean
+        }));
+
+        jest.mock('../binance/tickers', () => ({
+          setupTickersWebsocket: mockSetupTickersWebsocket,
+          refreshTickersClean: mockRefreshTickersClean,
+          getWebsocketTickersClean: mockGetWebsocketTickersClean
+        }));
+
+        mockPubSub.subscribe = jest.fn().mockImplementation((key, cb) => {
+          if (key === 'reset-symbol-websockets') {
+            cb('message', 'BTCUSDT');
+          }
+        });
+
+        const { runBinance } = require('../server-binance');
+        await runBinance(logger);
+      });
+
+      it('triggers setupTickersWebsocket', () => {
+        expect(mockSetupTickersWebsocket).toHaveBeenCalledWith(logger, [
+          'BTCUSDT'
+        ]);
       });
     });
   });
@@ -539,83 +594,245 @@ describe('server-binance', () => {
         }
       });
 
+      mockSetupUserWebsocket = jest.fn().mockResolvedValue(true);
+
+      mockSyncCandles = jest.fn().mockResolvedValue(true);
+      mockSetupCandlesWebsocket = jest.fn().mockResolvedValue(true);
+      mockGetWebsocketCandlesClean = jest.fn().mockResolvedValue(44);
+
+      mockSyncATHCandles = jest.fn().mockResolvedValue(true);
+      mockSetupATHCandlesWebsocket = jest.fn().mockResolvedValue(true);
+      mockGetWebsocketATHCandlesClean = jest.fn().mockResolvedValue(44);
+
+      mockSetupTickersWebsocket = jest.fn().mockResolvedValue(true);
+      mockRefreshTickersClean = jest.fn().mockResolvedValue(true);
+      mockGetWebsocketTickersClean = jest.fn().mockResolvedValue(44);
+
+      mockSyncOpenOrders = jest.fn().mockResolvedValue(true);
+      mockSyncDatabaseOrders = jest.fn().mockResolvedValue(true);
+
       mockGetGlobalConfiguration = jest.fn().mockResolvedValue({
         symbols: ['BTCUSDT', 'ETHUSDT', 'LTCUSDT']
       });
 
-      mockGetAccountInfo = jest.fn().mockResolvedValue({
-        balances: [
-          {
-            asset: 'BTC'
-          },
-          {
-            asset: 'BNB'
-          },
-          {
-            asset: 'ETH'
-          },
-          {
-            asset: 'USDT'
-          }
-        ]
+      mockGetAccountInfoFromAPI = jest.fn().mockResolvedValue({
+        account: 'info'
       });
+
+      mockCacheExchangeSymbols = jest.fn().mockResolvedValue(true);
 
       jest.mock('../cronjob/trailingTradeHelper/configuration', () => ({
         getGlobalConfiguration: mockGetGlobalConfiguration
       }));
 
       jest.mock('../cronjob/trailingTradeHelper/common', () => ({
-        getAccountInfo: mockGetAccountInfo
+        getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
+        cacheExchangeSymbols: mockCacheExchangeSymbols
       }));
 
-      mockWebsocketCandlesClean = jest.fn().mockResolvedValue(true);
-      PubSubMock.subscribe = jest.fn().mockImplementation((_key, cb) => {
+      jest.mock('../binance/user', () => ({
+        setupUserWebsocket: mockSetupUserWebsocket
+      }));
+
+      jest.mock('../binance/orders', () => ({
+        syncOpenOrders: mockSyncOpenOrders,
+        syncDatabaseOrders: mockSyncDatabaseOrders
+      }));
+
+      jest.mock('../binance/candles', () => ({
+        syncCandles: mockSyncCandles,
+        setupCandlesWebsocket: mockSetupCandlesWebsocket,
+        getWebsocketCandlesClean: mockGetWebsocketCandlesClean
+      }));
+
+      jest.mock('../binance/ath-candles', () => ({
+        syncATHCandles: mockSyncATHCandles,
+        setupATHCandlesWebsocket: mockSetupATHCandlesWebsocket,
+        getWebsocketATHCandlesClean: mockGetWebsocketATHCandlesClean
+      }));
+
+      jest.mock('../binance/tickers', () => ({
+        setupTickersWebsocket: mockSetupTickersWebsocket,
+        refreshTickersClean: mockRefreshTickersClean,
+        getWebsocketTickersClean: mockGetWebsocketTickersClean
+      }));
+
+      mockPubSub.subscribe = jest.fn().mockImplementation((_key, cb) => {
         cb('message', 'data');
       });
 
-      cacheMock.hget = jest
-        .fn()
-        .mockResolvedValue(
-          JSON.stringify(require('./fixtures/exchange-symbols.json'))
-        );
-      cacheMock.hset = jest.fn().mockResolvedValue(true);
-
-      binanceMock.client.prices = jest.fn().mockResolvedValue({
-        BTCUSDT: 30000,
-        ETHUSDT: 1000,
-        LTCUSDT: 120,
-        XRPUSDT: 2
-      });
-
       const { runBinance } = require('../server-binance');
-      await runBinance(loggerMock);
+      await runBinance(logger);
+    });
 
-      jest.advanceTimersByTime(1200);
+    it('triggers PubSub.subscribe for reset-all-websockets', () => {
+      expect(mockPubSub.subscribe).toHaveBeenCalledWith(
+        'reset-all-websockets',
+        expect.any(Function)
+      );
+    });
+
+    it('triggers PubSub.subscribe for reset-symbol-websockets', () => {
+      expect(mockPubSub.subscribe).toHaveBeenCalledWith(
+        'reset-symbol-websockets',
+        expect.any(Function)
+      );
     });
 
     it('triggers getGlobalConfiguration', () => {
       expect(mockGetGlobalConfiguration).toHaveBeenCalled();
     });
 
-    it('triggers binance.client.prices', () => {
-      expect(binanceMock.client.prices).toHaveBeenCalledTimes(2);
+    it('triggers getAccountInfoFromAPI', () => {
+      expect(mockGetAccountInfoFromAPI).toHaveBeenCalled();
     });
 
-    [
-      { symbol: 'BTCUSDT', expectedPrice: 30000 },
-      { symbol: 'ETHUSDT', expectedPrice: 1000 },
-      { symbol: 'LTCUSDT', expectedPrice: 120 }
-    ].forEach(symbolInfo => {
-      it(`triggers cache.hset for ${symbolInfo.symbol}`, () => {
-        expect(cacheMock.hset).toHaveBeenCalledWith(
-          'trailing-trade-symbols',
-          `${symbolInfo.symbol}-latest-candle`,
-          JSON.stringify({
-            eventType: 'kline',
-            symbol: symbolInfo.symbol,
-            close: symbolInfo.expectedPrice
-          })
-        );
+    it('triggers refreshCandles', () => {
+      expect(mockMongo.deleteAll).toHaveBeenCalledWith(
+        logger,
+        'trailing-trade-candles',
+        {}
+      );
+      expect(mockMongo.deleteAll).toHaveBeenCalledWith(
+        logger,
+        'trailing-trade-ath-candles',
+        {}
+      );
+    });
+
+    it('triggers cacheExchangeSymbols', () => {
+      expect(mockCacheExchangeSymbols).toHaveBeenCalled();
+    });
+
+    it('triggers syncCandles', () => {
+      expect(mockSyncCandles).toHaveBeenCalledWith(logger, [
+        'BTCUSDT',
+        'ETHUSDT',
+        'LTCUSDT'
+      ]);
+    });
+
+    it('triggers syncATHCandles', () => {
+      expect(mockSyncATHCandles).toHaveBeenCalledWith(logger, [
+        'BTCUSDT',
+        'ETHUSDT',
+        'LTCUSDT'
+      ]);
+    });
+
+    it('triggers syncOpenOrders', () => {
+      expect(mockSyncOpenOrders).toHaveBeenCalledWith(logger, [
+        'BTCUSDT',
+        'ETHUSDT',
+        'LTCUSDT'
+      ]);
+    });
+
+    it('triggers syncDatabaseOrders', () => {
+      expect(mockSyncDatabaseOrders).toHaveBeenCalledWith(logger);
+    });
+
+    it('triggers cache.hset', () => {
+      expect(mockCache.hset).toHaveBeenCalledWith(
+        'trailing-trade-streams',
+        `count`,
+        1
+      );
+    });
+  });
+
+  describe('when running bot twice', () => {
+    beforeEach(async () => {
+      config.get = jest.fn(key => {
+        switch (key) {
+          case 'mode':
+            return 'live';
+          default:
+            return `value-${key}`;
+        }
+      });
+
+      mockSetupUserWebsocket = jest.fn().mockResolvedValue(true);
+
+      mockSyncCandles = jest.fn().mockResolvedValue(true);
+      mockSetupCandlesWebsocket = jest.fn().mockResolvedValue(true);
+      mockGetWebsocketCandlesClean = jest.fn().mockResolvedValue(44);
+
+      mockSyncATHCandles = jest.fn().mockResolvedValue(true);
+      mockSetupATHCandlesWebsocket = jest.fn().mockResolvedValue(true);
+      mockGetWebsocketATHCandlesClean = jest.fn().mockResolvedValue(44);
+
+      mockSetupTickersWebsocket = jest.fn().mockResolvedValue(true);
+      mockRefreshTickersClean = jest.fn().mockResolvedValue(true);
+      mockGetWebsocketTickersClean = jest.fn().mockResolvedValue(44);
+
+      mockSyncOpenOrders = jest.fn().mockResolvedValue(true);
+      mockSyncDatabaseOrders = jest.fn().mockResolvedValue(true);
+
+      mockGetGlobalConfiguration = jest.fn().mockResolvedValue({
+        symbols: ['BTCUSDT', 'ETHUSDT', 'LTCUSDT']
+      });
+
+      mockGetAccountInfoFromAPI = jest.fn().mockResolvedValue({
+        account: 'info'
+      });
+
+      mockCacheExchangeSymbols = jest.fn().mockResolvedValue(true);
+
+      jest.mock('../cronjob/trailingTradeHelper/configuration', () => ({
+        getGlobalConfiguration: mockGetGlobalConfiguration
+      }));
+
+      jest.mock('../cronjob/trailingTradeHelper/common', () => ({
+        getAccountInfoFromAPI: mockGetAccountInfoFromAPI,
+        cacheExchangeSymbols: mockCacheExchangeSymbols
+      }));
+
+      jest.mock('../binance/user', () => ({
+        setupUserWebsocket: mockSetupUserWebsocket
+      }));
+
+      jest.mock('../binance/orders', () => ({
+        syncOpenOrders: mockSyncOpenOrders,
+        syncDatabaseOrders: mockSyncDatabaseOrders
+      }));
+
+      jest.mock('../binance/candles', () => ({
+        syncCandles: mockSyncCandles,
+        setupCandlesWebsocket: mockSetupCandlesWebsocket,
+        getWebsocketCandlesClean: mockGetWebsocketCandlesClean
+      }));
+
+      jest.mock('../binance/ath-candles', () => ({
+        syncATHCandles: mockSyncATHCandles,
+        setupATHCandlesWebsocket: mockSetupATHCandlesWebsocket,
+        getWebsocketATHCandlesClean: mockGetWebsocketATHCandlesClean
+      }));
+
+      jest.mock('../binance/tickers', () => ({
+        setupTickersWebsocket: mockSetupTickersWebsocket,
+        refreshTickersClean: mockRefreshTickersClean,
+        getWebsocketTickersClean: mockGetWebsocketTickersClean
+      }));
+
+      mockPubSub.subscribe = jest.fn().mockResolvedValue(true);
+
+      const { runBinance } = require('../server-binance');
+      await runBinance(logger);
+      await runBinance(logger);
+    });
+
+    it('triggers cacheExchangeSymbols', () => {
+      expect(mockCacheExchangeSymbols).toHaveBeenCalledTimes(2);
+    });
+
+    describe('when exchangeSymbolsInterval is passed', () => {
+      beforeEach(() => {
+        jest.advanceTimersByTime(61 * 1000);
+      });
+
+      it('triggers cacheExchangeSymbols', () => {
+        expect(mockCacheExchangeSymbols).toHaveBeenCalledTimes(3);
       });
     });
   });

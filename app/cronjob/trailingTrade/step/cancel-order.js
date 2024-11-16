@@ -15,12 +15,7 @@ const { deleteManualOrder } = require('../../trailingTradeHelper/order');
  */
 const execute = async (logger, rawData) => {
   const data = rawData;
-  const { symbol, isLocked, action, order } = data;
-
-  if (isLocked) {
-    logger.info({ isLocked }, 'Symbol is locked, do not process cancel-order');
-    return data;
-  }
+  const { symbol, action, order } = data;
 
   if (action !== 'cancel-order') {
     logger.info(
@@ -36,22 +31,27 @@ const execute = async (logger, rawData) => {
   };
 
   slack.sendMessage(
-    `${symbol} Cancel Action (${moment().format('HH:mm:ss.SSS')}): \n` +
-      `- Order: \`\`\`${JSON.stringify(order, undefined, 2)}\`\`\`\n` +
-      `- Current API Usage: ${getAPILimit(logger)}`
+    `*${symbol}* Cancel Action:\n` +
+      `- Order: \`\`\`${JSON.stringify(order, undefined, 2)}\`\`\``,
+    { symbol, apiLimit: getAPILimit(logger) }
   );
 
+  const { side } = order;
   logger.info(
     { function: 'order', orderParams, saveLog: true },
-    'The order will be cancelled.'
+    `The ${side.toLowerCase()} order will be cancelled.`
   );
 
   const orderResult = await binance.client.cancelOrder(orderParams);
 
-  logger.info({ orderResult, saveLog: true }, 'The order has been cancelled.');
+  logger.info(
+    { orderResult, saveLog: true },
+    `The ${side.toLowerCase()} order has been cancelled.`
+  );
 
   await deleteManualOrder(logger, symbol, order.orderId);
 
+  // FIXME: If you change this comment, please refactor to use common.js:refreshOpenOrdersAndAccountInfo
   // Get open orders and update cache
   data.openOrders = await getAndCacheOpenOrdersForSymbol(logger, symbol);
   data.buy.openOrders = data.openOrders.filter(
@@ -67,22 +67,22 @@ const execute = async (logger, rawData) => {
   PubSub.publish('frontend-notification', {
     type: 'success',
     title:
-      `The order for ${symbol} has been cancelled successfully.` +
+      `The ${side.toLowerCase()} order for ${symbol} has been cancelled successfully.` +
       ` If the order still display, it should be removed soon.`
   });
 
   slack.sendMessage(
-    `${symbol} Cancel Action Result (${moment().format('HH:mm:ss.SSS')}):\n` +
+    `*${symbol}* Cancel Action Result:\n` +
       `- Order Result: \`\`\`${JSON.stringify(
         orderResult,
         undefined,
         2
-      )}\`\`\`\n` +
-      `- Current API Usage: ${getAPILimit(logger)}`
+      )}\`\`\``,
+    { symbol, apiLimit: getAPILimit(logger) }
   );
 
-  data.buy.processMessage = `The order has been cancelled.`;
-  data.buy.updatedAt = moment().utc();
+  data.buy.processMessage = `The ${side.toLowerCase()} order has been cancelled.`;
+  data.buy.updatedAt = moment().utc().toDate();
 
   return data;
 };

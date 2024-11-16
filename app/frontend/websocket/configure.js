@@ -1,3 +1,4 @@
+const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
 const config = require('config');
 
@@ -11,7 +12,6 @@ const {
   handleLatest,
   handleSettingUpdate,
   handleSymbolUpdateLastBuyPrice,
-  handleSymbolDelete,
   handleSymbolSettingUpdate,
   handleSymbolSettingDelete,
   handleSymbolGridTradeDelete,
@@ -22,7 +22,8 @@ const {
   handleManualTradeAllSymbols,
   handleCancelOrder,
   handleDustTransferGet,
-  handleDustTransferExecute
+  handleDustTransferExecute,
+  handleExchangeSymbolsGet
 } = require('./handlers');
 
 const handleWarning = (logger, ws, message) => {
@@ -47,8 +48,6 @@ const configureWebSocket = async (server, funcLogger, { loginLimiter }) => {
 
   wss.on('connection', ws => {
     ws.on('message', async message => {
-      logger.info({ message }, 'received');
-
       // eslint-disable-next-line no-underscore-dangle
       const clientIp = ws._socket.remoteAddress;
       const rateLimiterLogin = await loginLimiter.get(clientIp);
@@ -78,13 +77,12 @@ const configureWebSocket = async (server, funcLogger, { loginLimiter }) => {
         return;
       }
 
-      const commandLogger = logger.child({ payload });
+      const commandLogger = logger.child({ payload, correlationId: uuidv4() });
 
       const commandMaps = {
         latest: handleLatest,
         'setting-update': handleSettingUpdate,
         'symbol-update-last-buy-price': handleSymbolUpdateLastBuyPrice,
-        'symbol-delete': handleSymbolDelete,
         'symbol-setting-update': handleSymbolSettingUpdate,
         'symbol-setting-delete': handleSymbolSettingDelete,
         'symbol-grid-trade-delete': handleSymbolGridTradeDelete,
@@ -95,7 +93,8 @@ const configureWebSocket = async (server, funcLogger, { loginLimiter }) => {
         'manual-trade-all-symbols': handleManualTradeAllSymbols,
         'cancel-order': handleCancelOrder,
         'dust-transfer-get': handleDustTransferGet,
-        'dust-transfer-execute': handleDustTransferExecute
+        'dust-transfer-execute': handleDustTransferExecute,
+        'exchange-symbols-get': handleExchangeSymbolsGet
       };
 
       if (commandMaps[payload.command] === undefined) {

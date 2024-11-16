@@ -65,7 +65,7 @@ class CoinWrapperAction extends React.Component {
       renderOverrideAction = (
         <div className='coin-info-column coin-info-column-title border-bottom-0 m-0 p-0'>
           <div
-            className='bg-light text-dark w-100 px-1'
+            className='w-100 px-1 text-warning'
             title={overrideData.actionAt}>
             Action <strong>{overrideData.action}</strong> will be executed{' '}
             {moment(overrideData.actionAt).fromNow()}, triggered by{' '}
@@ -75,24 +75,59 @@ class CoinWrapperAction extends React.Component {
       );
     }
 
+    const updatedAt = moment
+      .utc(buy.updatedAt, 'YYYY-MM-DDTHH:mm:ss.SSSSSS')
+      .local();
+    const currentTime = moment.utc().local();
+
     return (
       <div className='coin-info-sub-wrapper'>
         <div className='coin-info-column coin-info-column-title border-bottom-0 mb-0 pb-0'>
-          <div className='coin-info-label w-40'>
+          <div className='coin-info-label'>
             Action -{' '}
-            <span className='coin-info-value'>
-              {moment(buy.updatedAt).format('HH:mm:ss')}
-            </span>
+            <HightlightChange className='coin-info-value' id='updated-at'>
+              {updatedAt.format('HH:mm:ss')}
+            </HightlightChange>
             {isLocked === true ? <i className='fas fa-lock ml-1'></i> : ''}
             {isActionDisabled.isDisabled === true ? (
               <i className='fas fa-pause-circle ml-1 text-warning'></i>
             ) : (
               ''
             )}
+            {updatedAt.isBefore(currentTime, 'minute') ? (
+              <OverlayTrigger
+                trigger='click'
+                key='action-updated-at-alert-overlay'
+                placement='bottom'
+                overlay={
+                  <Popover id='action-updated-at-alert-overlay-right'>
+                    <Popover.Content>
+                      The bot didn't receive the price change for over a min. It
+                      means the price hasn't changed in Binance. It will be
+                      updated when the bot receives a new price change.
+                      <br />
+                      <br />
+                      Last updated: {updatedAt.fromNow()}
+                    </Popover.Content>
+                  </Popover>
+                }>
+                <Button
+                  variant='link'
+                  className='p-0 m-0 ml-1 text-white-50 d-inline-block'
+                  style={{ lineHeight: '17px' }}>
+                  <i className='fas fa-exclamation-circle mx-1'></i>
+                </Button>
+              </OverlayTrigger>
+            ) : (
+              ''
+            )}
           </div>
 
-          <div className='d-flex flex-column align-items-end w-60'>
-            <HightlightChange className='action-label'>
+          <div className='d-flex flex-column align-items-end'>
+            <HightlightChange
+              className={`action-label ${
+                label.length < 10 ? 'badge-pill badge-dark' : ''
+              }`}>
               {label}
             </HightlightChange>
             {isActionDisabled.isDisabled === true ? (

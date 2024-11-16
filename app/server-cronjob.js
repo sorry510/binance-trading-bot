@@ -5,8 +5,8 @@ const { maskConfig } = require('./cronjob/trailingTradeHelper/util');
 
 const {
   executeAlive,
-  executeTrailingTrade,
-  executeTrailingTradeIndicator
+  executeTrailingTradeIndicator,
+  executeTradingView
 } = require('./cronjob');
 
 const fulfillWithTimeLimit = async (logger, timeLimit, task, failureValue) => {
@@ -44,10 +44,13 @@ const runCronjob = async serverLogger => {
   // Execute jobs
   [
     { jobName: 'alive', executeJob: executeAlive },
-    { jobName: 'trailingTrade', executeJob: executeTrailingTrade },
     {
       jobName: 'trailingTradeIndicator',
       executeJob: executeTrailingTradeIndicator
+    },
+    {
+      jobName: 'tradingView',
+      executeJob: executeTradingView
     }
   ].forEach(job => {
     const { jobName, executeJob } = job;

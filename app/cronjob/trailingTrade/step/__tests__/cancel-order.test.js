@@ -41,34 +41,6 @@ describe('cancel-order.js', () => {
       }));
     });
 
-    describe('when symbol is locked', () => {
-      beforeEach(async () => {
-        jest.mock('../../../trailingTradeHelper/common', () => ({
-          getAPILimit: mockGetAPILimit,
-          getAndCacheOpenOrdersForSymbol: mockGetAndCacheOpenOrdersForSymbol,
-          getAccountInfoFromAPI: mockGetAccountInfoFromAPI
-        }));
-
-        const step = require('../cancel-order');
-        rawData = {
-          symbol: 'BTCUSDT',
-          isLocked: true,
-          action: 'cancel-order',
-          order: {}
-        };
-
-        result = await step.execute(loggerMock, rawData);
-      });
-
-      it('does not trigger binance.client.cancelOrder', () => {
-        expect(binanceMock.client.cancelOrder).not.toHaveBeenCalled();
-      });
-
-      it('returns expected value', () => {
-        expect(result).toStrictEqual(rawData);
-      });
-    });
-
     describe('when action is not cancel-order', () => {
       beforeEach(async () => {
         jest.mock('../../../trailingTradeHelper/common', () => ({
@@ -80,7 +52,6 @@ describe('cancel-order.js', () => {
         const step = require('../cancel-order');
         rawData = {
           symbol: 'BTCUSDT',
-          isLocked: false,
           action: 'buy-order-wait',
           order: {}
         };
@@ -120,7 +91,6 @@ describe('cancel-order.js', () => {
           const step = require('../cancel-order');
           rawData = {
             symbol: 'BTCUSDT',
-            isLocked: false,
             action: 'cancel-order',
             accountInfo: {
               existing: 'data'
@@ -146,13 +116,14 @@ describe('cancel-order.js', () => {
             sell: {
               openOrders: [
                 {
-                  orderId: 'another-sellorder',
+                  orderId: 'another-sell-order',
                   side: 'sell'
                 }
               ]
             },
             order: {
-              orderId: 'order-123'
+              orderId: 'order-123',
+              side: 'buy'
             }
           };
 
@@ -177,7 +148,6 @@ describe('cancel-order.js', () => {
         it('returns expected value', () => {
           expect(result).toStrictEqual({
             symbol: 'BTCUSDT',
-            isLocked: false,
             action: 'cancel-order',
             accountInfo: {
               account: 'info'
@@ -199,7 +169,7 @@ describe('cancel-order.js', () => {
                   side: 'buy'
                 }
               ],
-              processMessage: 'The order has been cancelled.',
+              processMessage: 'The buy order has been cancelled.',
               updatedAt: expect.any(Object)
             },
             sell: {
@@ -211,7 +181,8 @@ describe('cancel-order.js', () => {
               ]
             },
             order: {
-              orderId: 'order-123'
+              orderId: 'order-123',
+              side: 'buy'
             }
           });
         });
@@ -230,7 +201,6 @@ describe('cancel-order.js', () => {
           const step = require('../cancel-order');
           rawData = {
             symbol: 'BTCUSDT',
-            isLocked: false,
             action: 'cancel-order',
             accountInfo: {
               existing: 'data'
@@ -262,7 +232,8 @@ describe('cancel-order.js', () => {
               ]
             },
             order: {
-              orderId: 'order-123'
+              orderId: 'order-123',
+              side: 'buy'
             }
           };
 
@@ -287,7 +258,6 @@ describe('cancel-order.js', () => {
         it('returns expected value', () => {
           expect(result).toStrictEqual({
             symbol: 'BTCUSDT',
-            isLocked: false,
             action: 'cancel-order',
             accountInfo: {
               account: 'info'
@@ -295,14 +265,15 @@ describe('cancel-order.js', () => {
             openOrders: [],
             buy: {
               openOrders: [],
-              processMessage: 'The order has been cancelled.',
+              processMessage: 'The buy order has been cancelled.',
               updatedAt: expect.any(Object)
             },
             sell: {
               openOrders: []
             },
             order: {
-              orderId: 'order-123'
+              orderId: 'order-123',
+              side: 'buy'
             }
           });
         });

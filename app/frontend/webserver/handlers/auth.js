@@ -1,3 +1,4 @@
+const { v4: uuidv4 } = require('uuid');
 const _ = require('lodash');
 const bcrypt = require('bcryptjs');
 const config = require('config');
@@ -43,9 +44,10 @@ const generateToken = async logger => {
 };
 
 const handleAuth = async (funcLogger, app, { loginLimiter }) => {
-  const logger = funcLogger.child({ endpoint: '/auth' });
+  const handlerLogger = funcLogger.child({ endpoint: '/auth' });
 
   app.route('/auth').post(async (req, res) => {
+    const logger = handlerLogger.child({ correlationId: uuidv4() });
     const { password: requestedPassword } = req.body;
     const clientIp = requestIp.getClientIp(req);
 
@@ -74,11 +76,12 @@ const handleAuth = async (funcLogger, app, { loginLimiter }) => {
       });
 
       slack.sendMessage(
-        `${config.get('appName')} Webserver (${moment().format(
-          'HH:mm:ss'
-        )}):\n❌ The bot failed to authenticate.\n` +
+        `${config.get(
+          'appName'
+        )} Webserver:\n❌ The bot failed to authenticate.\n` +
           `- Entered password: ${requestedPassword}\n` +
-          `- IP: ${clientIp}`
+          `- IP: ${clientIp}`,
+        { symbol: 'global' }
       );
 
       return res.send({
@@ -101,9 +104,10 @@ const handleAuth = async (funcLogger, app, { loginLimiter }) => {
     });
 
     slack.sendMessage(
-      `${config.get('appName')} Webserver (${moment().format(
-        'HH:mm:ss'
-      )}):\n✅ The bot succeeded to authenticate.\n- IP: ${clientIp}`
+      `${config.get(
+        'appName'
+      )} Webserver:\n✅ The bot succeeded to authenticate.\n- IP: ${clientIp}`,
+      { symbol: 'global' }
     );
 
     return res.send({

@@ -18,7 +18,7 @@ class SymbolGridTradeArchiveIcon extends React.Component {
       showDeleteAllBySymbolModal: false,
       loading: true,
       page: 1,
-      limit: 5,
+      limit: 20,
       period: 'a',
       start: null,
       end: null,
@@ -64,18 +64,21 @@ class SymbolGridTradeArchiveIcon extends React.Component {
     let start = null;
     let end = null;
 
+    const momentLocale = moment().locale(
+      Intl.DateTimeFormat().resolvedOptions().locale
+    );
     switch (newPeriod) {
       case 'd':
-        start = moment().startOf('day').toISOString();
-        end = moment().endOf('day').toISOString();
+        start = momentLocale.startOf('day').toISOString();
+        end = momentLocale.endOf('day').toISOString();
         break;
       case 'w':
-        start = moment().startOf('week').toISOString();
-        end = moment().endOf('week').toISOString();
+        start = momentLocale.startOf('week').toISOString();
+        end = momentLocale.endOf('week').toISOString();
         break;
       case 'm':
-        start = moment().startOf('month').toISOString();
-        end = moment().endOf('month').toISOString();
+        start = momentLocale.startOf('month').toISOString();
+        end = momentLocale.endOf('month').toISOString();
         break;
       case 'a':
       default:
@@ -182,7 +185,15 @@ class SymbolGridTradeArchiveIcon extends React.Component {
               <br />({parseFloat(row.profitPercentage).toFixed(2)}%)
             </td>
             <td
-              title={row.totalBuyQuoteQty}
+              title={
+                'Buy via Grid Trade: ' +
+                parseFloat(row.buyGridTradeQuoteQty).toFixed(
+                  quoteAssetTickSize
+                ) +
+                '\n' +
+                'Buy via Manual Trade: ' +
+                parseFloat(row.buyManualQuoteQty).toFixed(quoteAssetTickSize)
+              }
               className={`text-center align-middle ${
                 row.totalBuyQuoteQty === 0 ? 'text-muted' : ''
               }`}>
@@ -190,9 +201,24 @@ class SymbolGridTradeArchiveIcon extends React.Component {
               {quoteAsset}
             </td>
             <td
-              title={row.totalSellQuoteQty}
+              title={
+                'Sell via Grid Trade: ' +
+                parseFloat(row.sellGridTradeQuoteQty).toFixed(
+                  quoteAssetTickSize
+                ) +
+                '\n' +
+                'Sell via Manual Trade: ' +
+                parseFloat(row.sellManualQuoteQty).toFixed(quoteAssetTickSize) +
+                '\n' +
+                'Sell via Stop Loss: ' +
+                parseFloat(row.stopLossQuoteQty).toFixed(quoteAssetTickSize)
+              }
               className={`text-center align-middle ${
-                row.totalSellQuoteQty === 0 ? 'text-muted' : ''
+                row.totalSellQuoteQty === 0
+                  ? 'text-muted'
+                  : row.stopLossQuoteQty === 0
+                  ? ''
+                  : 'text-danger'
               }`}>
               {parseFloat(row.totalSellQuoteQty).toFixed(quoteAssetTickSize)}{' '}
               {quoteAsset}
@@ -202,63 +228,20 @@ class SymbolGridTradeArchiveIcon extends React.Component {
               title={moment(row.archivedAt).format()}>
               {moment(row.archivedAt).fromNow()}
             </td>
-          </tr>
-          <tr>
-            <td colSpan='4' className='px-3'>
-              <div className='d-flex flex-row justify-content-between'>
-                <div className='d-flex flex-column'>
-                  <span>
-                    - Buy via Grid Trade:{' '}
-                    {parseFloat(row.buyGridTradeQuoteQty).toFixed(
-                      quoteAssetTickSize
-                    )}{' '}
-                    {quoteAsset}
-                  </span>
-                  <span>
-                    - Buy via Manual Trade:{' '}
-                    {parseFloat(row.buyManualQuoteQty).toFixed(
-                      quoteAssetTickSize
-                    )}{' '}
-                    {quoteAsset}
-                  </span>
-                  <span>
-                    - Sell via Grid Trade:{' '}
-                    {parseFloat(row.sellGridTradeQuoteQty).toFixed(
-                      quoteAssetTickSize
-                    )}{' '}
-                    {quoteAsset}
-                  </span>
-                  <span>
-                    - Sell via Manual Trade:{' '}
-                    {parseFloat(row.sellManualQuoteQty).toFixed(
-                      quoteAssetTickSize
-                    )}{' '}
-                    {quoteAsset}
-                  </span>
-                  <span>
-                    - Sell via Stop Loss:{' '}
-                    {parseFloat(row.stopLossQuoteQty).toFixed(
-                      quoteAssetTickSize
-                    )}{' '}
-                    {quoteAsset}
-                  </span>
-                </div>
-                <div className='d-flex flex-column text-right align-self-center'>
-                  <button
-                    type='button'
-                    className='btn btn-sm btn-danger'
-                    onClick={() => {
-                      this.setState(
-                        {
-                          selectedDeleteByKey: row.key
-                        },
-                        () => this.handleModalShow('deleteByKey')
-                      );
-                    }}>
-                    Delete
-                  </button>
-                </div>
-              </div>
+            <td className='text-center align-middle'>
+              <button
+                type='button'
+                className='btn btn-sm btn-danger'
+                onClick={() => {
+                  this.setState(
+                    {
+                      selectedDeleteByKey: row.key
+                    },
+                    () => this.handleModalShow('deleteByKey')
+                  );
+                }}>
+                Delete
+              </button>
             </td>
           </tr>
         </React.Fragment>
@@ -269,6 +252,13 @@ class SymbolGridTradeArchiveIcon extends React.Component {
 
     const totalPages = Math.ceil(stats.trades / limit);
     // If total
+    paginationItems.push(
+      <Pagination.First
+        key='first'
+        disabled={page === 1 || totalPages === 1}
+        onClick={() => this.setPage(1)}
+      />
+    );
     if (page === 1 || totalPages === 1) {
       paginationItems.push(
         <Pagination.Prev key='pagination-item-prev' disabled />
@@ -281,28 +271,22 @@ class SymbolGridTradeArchiveIcon extends React.Component {
         />
       );
     }
-    [...Array(3).keys()].forEach(x => {
-      if (page === 1 && x === 0) {
-        paginationItems.push(
-          <Pagination.Item
-            active
-            key={`pagination-item-${x}`}
-            onClick={() => this.setPage(page)}>
-            {page}
-          </Pagination.Item>
-        );
-      } else {
-        const pageNum = page === 1 ? page + x : page + x - 1;
-        paginationItems.push(
-          <Pagination.Item
-            active={pageNum === page}
-            disabled={pageNum > totalPages}
-            key={`pagination-item-${x}`}
-            onClick={() => this.setPage(pageNum)}>
-            {pageNum}
-          </Pagination.Item>
-        );
-      }
+    const maxButtons = 8;
+    const buttons = Math.min(maxButtons, ~~totalPages);
+    [...Array(buttons).keys()].forEach(x => {
+      const pageNum = Math.min(
+        Math.max(x + 1, page + x + 1 - Math.ceil(buttons / 2)),
+        totalPages + x + 1 - buttons
+      );
+      paginationItems.push(
+        <Pagination.Item
+          active={pageNum === page}
+          disabled={pageNum > totalPages}
+          key={`pagination-item-${x}`}
+          onClick={() => this.setPage(pageNum)}>
+          {pageNum}
+        </Pagination.Item>
+      );
     });
     if (page === totalPages || page >= totalPages) {
       paginationItems.push(
@@ -316,6 +300,14 @@ class SymbolGridTradeArchiveIcon extends React.Component {
         />
       );
     }
+    const lastPage = totalPages;
+    paginationItems.push(
+      <Pagination.Last
+        key='last'
+        disabled={page === totalPages || page >= totalPages}
+        onClick={() => this.setPage(lastPage)}
+      />
+    );
 
     return (
       <div className='coin-info-symbol-grid-trade-archive-wrapper'>
@@ -464,6 +456,13 @@ class SymbolGridTradeArchiveIcon extends React.Component {
                 ) : (
                   <React.Fragment>
                     <div className='row'>
+                      <div className='d-flex w-100 flex-row justify-content-between px-3 mb-2'>
+                        <Pagination
+                          className='justify-content-center mb-0'
+                          size='sm'>
+                          {paginationItems}
+                        </Pagination>
+                      </div>
                       <Table striped bordered hover size='sm' responsive>
                         <thead>
                           <tr>
@@ -471,6 +470,7 @@ class SymbolGridTradeArchiveIcon extends React.Component {
                             <th className='text-center'>Buy</th>
                             <th className='text-center'>Sell</th>
                             <th className='text-center'>Closed At</th>
+                            <th className='text-center'>Action</th>
                           </tr>
                         </thead>
                         <tbody>{tradeRows}</tbody>

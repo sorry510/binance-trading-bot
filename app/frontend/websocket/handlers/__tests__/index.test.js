@@ -6,7 +6,6 @@ describe('index', () => {
       handleLatest: expect.any(Function),
       handleSettingUpdate: expect.any(Function),
       handleSymbolUpdateLastBuyPrice: expect.any(Function),
-      handleSymbolDelete: expect.any(Function),
       handleSymbolSettingUpdate: expect.any(Function),
       handleSymbolSettingDelete: expect.any(Function),
       handleSymbolGridTradeDelete: expect.any(Function),
@@ -17,7 +16,8 @@ describe('index', () => {
       handleManualTrade: expect.any(Function),
       handleCancelOrder: expect.any(Function),
       handleDustTransferGet: expect.any(Function),
-      handleDustTransferExecute: expect.any(Function)
+      handleDustTransferExecute: expect.any(Function),
+      handleExchangeSymbolsGet: expect.any(Function)
     });
   });
 });

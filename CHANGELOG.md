@@ -2,6 +2,128 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Added to support frontend port configuration - [#670](https://github.com/chrisleekr/binance-trading-bot/pull/670)
+
+## [0.0.99] - 2024-11-04
+
+- Added multiple TradingView indicators - [#539](https://github.com/chrisleekr/binance-trading-bot/pull/539)
+- Added docker-compose.log.yml for log viewer - [#654](https://github.com/chrisleekr/binance-trading-bot/pull/654)
+- Added `/status` endpoint to TradingView - [#668](https://github.com/chrisleekr/binance-trading-bot/pull/668)
+
+## [0.0.98] - 2023-04-13
+
+- Added the prefix to environment parameter for `TRADINGVIEW` related - [#616](https://github.com/chrisleekr/binance-trading-bot/pull/616)
+- Fixed the issue with minNotional - [#623](https://github.com/chrisleekr/binance-trading-bot/pull/623)
+- Add clear symbols button by [@TheSmuks](https://github.com/TheSmuks) - [#626](https://github.com/chrisleekr/binance-trading-bot/pull/626)
+- Improved customised setting details by [@rando128](https://github.com/rando128) - [#625](https://github.com/chrisleekr/binance-trading-bot/pull/625)
+- Updated collapsable header UX by [@rando128](https://github.com/rando128) - [#624](https://github.com/chrisleekr/binance-trading-bot/pull/624)
+
+Thanks [@TheSmuks](https://github.com/TheSmuks) and [@rando128](https://github.com/rando128) for your great contributions. 💯 :heart:
+
+## [0.0.97] - 2023-03-21
+
+- Fixed sorting symbols open trades first by [@uhliksk](https://github.com/uhliksk) - [#564](https://github.com/chrisleekr/binance-trading-bot/pull/564)
+- Fixed the issue that cannot export huge logs - [#561](https://github.com/chrisleekr/binance-trading-bot/pull/561), [#567](https://github.com/chrisleekr/binance-trading-bot/pull/567)
+- Fixed the balance calculation to include dust balances by [@uhliksk](https://github.com/uhliksk) - [#571](https://github.com/chrisleekr/binance-trading-bot/pull/571)
+- Fixed the open orders to be cancelled when the current price is higher/lower than the order price by [@uhliksk](https://github.com/uhliksk) - [#569](https://github.com/chrisleekr/binance-trading-bot/pull/569)
+- Improved queue processing by replacing Bull queue to customised queue system by [@uhliksk](https://github.com/uhliksk) - [#562](https://github.com/chrisleekr/binance-trading-bot/pull/562), [#581](https://github.com/chrisleekr/binance-trading-bot/pull/581), [#588](https://github.com/chrisleekr/binance-trading-bot/pull/588)
+- Added conservative sell strategy, which can reduce the sell trigger price as the grid gets deeper by [@rando128](https://github.com/rando128) - [#585](https://github.com/chrisleekr/binance-trading-bot/pull/585)
+- Fixed the stop-loss to be a higher priority than the new buy order by [@uhliksk](https://github.com/uhliksk) - [#589](https://github.com/chrisleekr/binance-trading-bot/pull/589)
+- Improved search and filtering UX by [@rando128](https://github.com/rando128) - [#591](https://github.com/chrisleekr/binance-trading-bot/pull/591)
+- Enhanced the break-even calculator by [@rando128](https://github.com/rando128) - [#597](https://github.com/chrisleekr/binance-trading-bot/pull/597), [#601](https://github.com/chrisleekr/binance-trading-bot/pull/601)
+- Updated TradingView host/port configurable  by [@rando128](https://github.com/rando128) - [#608](https://github.com/chrisleekr/binance-trading-bot/pull/608)
+
+Thanks [@uhliksk](https://github.com/uhliksk) and [@rando128](https://github.com/rando128) for your great contributions. 💯 :heart:
+
+## [0.0.96] - 2022-12-28
+
+- Enhanced the suggested break-even amount a grid calculator by [@rando128](https://github.com/rando128) - [#555](https://github.com/chrisleekr/binance-trading-bot/pull/555), [#557](https://github.com/chrisleekr/binance-trading-bot/pull/557)
+- Fixed API error page priority by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#556](https://github.com/chrisleekr/binance-trading-bot/pull/556)
+
+Thanks [@rando128](https://github.com/rando128) and [@habibalkhabbaz](https://github.com/habibalkhabbaz) for your great contributions. 💯 :heart:
+
+## [0.0.95] - 2022-12-19
+
+- Added API error message when using the wrong API key/secret - [#544](https://github.com/chrisleekr/binance-trading-bot/pull/544)
+- Automatic login when password is autofilled by the browser by [@rando128](https://github.com/rando128) - [#550](https://github.com/chrisleekr/binance-trading-bot/pull/550)
+- Fixed the queue concurrency issue - [#551](https://github.com/chrisleekr/binance-trading-bot/pull/551)
+- Added the feature to hide temporary disabled trading coins from dashboard by [@rando128](https://github.com/rando128) - [#552](https://github.com/chrisleekr/binance-trading-bot/pull/552)
+- Enhanced the suggested break-even amount with a grid calculator by [@rando128](https://github.com/rando128) - [#554](https://github.com/chrisleekr/binance-trading-bot/pull/554)
+
+Thanks [@rando128](https://github.com/rando128) for your great contributions. 💯 :heart:
+
+## [0.0.94] - 2022-11-24
+
+- Added advanced chart link to Tradingview section by [@rando128](https://github.com/rando128) - [#525](https://github.com/chrisleekr/binance-trading-bot/pull/525)
+- Fixed Frontend pagination by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#526](https://github.com/chrisleekr/binance-trading-bot/pull/526)
+- Added buy/sell order details in the grid trade sections by [@rando128](https://github.com/rando128) - [#527](https://github.com/chrisleekr/binance-trading-bot/pull/527)
+- Added to show suggested break-even amount by [@rando128](https://github.com/rando128) - [#540](https://github.com/chrisleekr/binance-trading-bot/pull/540)
+
+Thanks [@habibalkhabbaz](https://github.com/habibalkhabbaz) and [@rando128](https://github.com/rando128) for your great contributions. 💯 :heart:
+
+## [0.0.93] - 2022-10-07
+
+- Updated redlock locking period by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#522](https://github.com/chrisleekr/binance-trading-bot/pull/522)
+- Updated Slack notification for last buy updated and buy confirmation by [@rando128](https://github.com/rando128) - [#518](https://github.com/chrisleekr/binance-trading-bot/pull/518)
+
+## [0.0.92] - 2022-10-07
+
+- Fixed Axios version issue by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#521](https://github.com/chrisleekr/binance-trading-bot/pull/521)
+
+## [0.0.91] - 2022-08-28
+
+- Fixed sorting symbols by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#496](https://github.com/chrisleekr/binance-trading-bot/pull/496)
+- Added backup/restore functions - [#501](https://github.com/chrisleekr/binance-trading-bot/pull/501)
+- Added demo mode - [#509](https://github.com/chrisleekr/binance-trading-bot/pull/509)
+- Fixed account balance calculation by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#514]([https://github.com/chrisleekr/binance-trading-bot/pull/496](https://github.com/chrisleekr/binance-trading-bot/pull/514))
+
+Thanks [@habibalkhabbaz](https://github.com/habibalkhabbaz) for your great contributions. 💯 :heart:
+
+## [0.0.90] - 2022-08-27
+
+- Fixed handling execution report - [#495](https://github.com/chrisleekr/binance-trading-bot/pull/495)
+- Fixed archiving grid order if all sell orders are executed - [#490](https://github.com/chrisleekr/binance-trading-bot/pull/490)
+- Update symbol delete action to remove override data - [#489](https://github.com/chrisleekr/binance-trading-bot/pull/489)
+- Improved performance with bulk write candles to DB by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#481](https://github.com/chrisleekr/binance-trading-bot/pull/481)
+- Fixed non-active exchange symbols by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#478](https://github.com/chrisleekr/binance-trading-bot/pull/478)
+- Fixed incorrect symbol in reset-symbol-websockets by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#477](https://github.com/chrisleekr/binance-trading-bot/pull/477)
+- Improved UI by [@uhliksk](https://github.com/uhliksk) - [#479](https://github.com/chrisleekr/binance-trading-bot/pull/479)
+
+Thanks [@habibalkhabbaz](https://github.com/habibalkhabbaz) and [@uhliksk](https://github.com/uhliksk) for your great contributions. 💯 :heart:
+
+## [0.0.89] - 2022-08-16
+
+- Fixed incorrect behaviour of exceeding max open orders by [@uhliksk](https://github.com/uhliksk) - [#462](https://github.com/chrisleekr/binance-trading-bot/pull/462)
+- Bumped vulnerable package versions - [#472](https://github.com/chrisleekr/binance-trading-bot/pull/472)
+- Refactored the slack hander to avoid message flooding to Slack - [#471](https://github.com/chrisleekr/binance-trading-bot/pull/471)
+- Implemented queue to stabilise the trade by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#464](https://github.com/chrisleekr/binance-trading-bot/pull/464)
+- Fixed to handle order status update correctly - [#461](https://github.com/chrisleekr/binance-trading-bot/pull/461)
+- Fixed timezone inconsistency by [@uhliksk](https://github.com/uhliksk) - [#454](https://github.com/chrisleekr/binance-trading-bot/pull/454)
+- Improved UI by [@uhliksk](https://github.com/uhliksk) - [#452](https://github.com/chrisleekr/binance-trading-bot/pull/452)
+- Improved error handler and stability by [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#448](https://github.com/chrisleekr/binance-trading-bot/pull/448)
+
+Thanks [@habibalkhabbaz](https://github.com/habibalkhabbaz) and [@uhliksk](https://github.com/uhliksk) for your great contributions.
+
+## [0.0.88] - 2022-07-24
+
+- Added TRADINGVIEW_LOG_LEVEL. Thanks [@azorpax](https://github.com/azorpax) - [#436](https://github.com/chrisleekr/binance-trading-bot/pull/436)
+
+## [0.0.87] - 2022-07-23
+
+- Refactored error handling. Thanks [@habibalkhabbaz](https://github.com/habibalkhabbaz) - [#434](https://github.com/chrisleekr/binance-trading-bot/pull/434)
+
+## [0.0.86] - 2022-07-22
+
+- Upgraded TradingView TA to 3.2.10 - [#426](https://github.com/chrisleekr/binance-trading-bot/pull/426)
+- Added override trading view with auto trigger buy - [#429](https://github.com/chrisleekr/binance-trading-bot/pull/429)
+- Enhanced to use WebSocket for monitoring candles/orders/account information. It's faster! - [#431](https://github.com/chrisleekr/binance-trading-bot/pull/431)
+- Updated the frontend with pagination [#431](https://github.com/chrisleekr/binance-trading-bot/pull/431)
+- Updated account balance layout in the frontend [#431](https://github.com/chrisleekr/binance-trading-bot/pull/431)
+
+Thanks [@habibalkhabbaz](https://github.com/habibalkhabbaz) for all these updates!
+
 ## [0.0.85] - 2021-11-02
 
 - Refactored TradingView python server - [#383](https://github.com/chrisleekr/binance-trading-bot/pull/383)

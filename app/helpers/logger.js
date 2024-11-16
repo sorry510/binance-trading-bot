@@ -8,7 +8,8 @@ const mongo = require('./mongo');
 /* istanbul ignore next */
 const fakeLogger = {
   child: _childData => ({
-    info: (..._infoData) => {}
+    info: (..._infoData) => {},
+    debug: (..._infoData) => {}
   })
 };
 
@@ -24,7 +25,7 @@ InfoStream.prototype.write = rawLog => {
       mongo.insertOne(fakeLogger, 'trailing-trade-logs', {
         symbol: log.symbol,
         msg: log.msg,
-        loggedAt: moment(log.time).toDate(),
+        loggedAt: moment(log.time).utc().toDate(),
         data: _.omit(log, [
           'msg',
           'symbol',

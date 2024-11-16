@@ -15,6 +15,7 @@ services:
       - BINANCE_REDIS_HOST=binance-redis
       - BINANCE_REDIS_PORT=6379
       - BINANCE_REDIS_PASSWORD=secretp422
+      - BINANCE_LOG_LEVEL=INFO
     ports:
       - 8080:80
     logging:
@@ -28,6 +29,9 @@ services:
     networks:
       - internal
     restart: unless-stopped
+    environment:
+      # https://docs.python.org/3/howto/logging.html#logging-levels
+      - BINANCE_TRADINGVIEW_LOG_LEVEL=INFO
     logging:
       driver: 'json-file'
       options:

@@ -1,8 +1,157 @@
 /* eslint-disable prefer-destructuring */
 const _ = require('lodash');
 const moment = require('moment');
-const { cache } = require('../../../helpers');
+const { cache, mongo } = require('../../../helpers');
 const { getLastBuyPrice } = require('../../trailingTradeHelper/common');
+
+/**
+ * Flatten candle data
+ *
+ * @param {*} candles
+ */
+const flattenCandlesData = candles => {
+  const openTime = [];
+  const high = [];
+  const low = [];
+  const close = [];
+
+  candles.forEach(candle => {
+    openTime.push(+candle.openTime);
+    high.push(+candle.high);
+    low.push(+candle.low);
+    close.push(+candle.close);
+  });
+
+  return {
+    openTime,
+    high,
+    low,
+    close
+  };
+};
+
+/**
+ * Determine the grid state for nextBestBuyAmount calculation
+ * - isSingleSellGrid
+ * - hasObviousManualTrade
+ *
+ */
+const nextBestBuyAmountCalculationConditions = data => {
+  const {
+    symbolConfiguration: {
+      buy: {
+        currentGridTradeIndex: currentBuyGridTradeIndex,
+        gridTrade: buyGridTrade
+      },
+      sell: {
+        currentGridTradeIndex: currentSellGridTradeIndex,
+        gridTrade: sellGridTrade
+      }
+    }
+  } = data;
+
+  // Find the first non-executed trade.
+  //    -1 means all buy trades are executed.
+  //    0 or more means the index of trades for first non-executed trade.
+  const firstNonExecutedTradeIndex = buyGridTrade.findIndex(
+    trade => trade.executed === false
+  );
+  // Find the first executed trade.
+  //    -1 means no buy trade is executed.
+  //    0 or more means the index of trades for first executed trade.
+  const firstExecutedTradeIndex = buyGridTrade.findIndex(
+    trade => trade.executed === true
+  );
+  const hasObviousManualTrade =
+    // If there is non-executed trade and does not have executed trade
+    (firstNonExecutedTradeIndex !== -1 && firstExecutedTradeIndex === -1) ||
+    // Or there is non-executed trade and the non-executed trade index is lower than the executed trade index
+    // or the index of current buy grid trade.
+    // It usually happens when the last buy price is set manually.
+    (firstNonExecutedTradeIndex !== -1 &&
+      firstNonExecutedTradeIndex < firstExecutedTradeIndex) ||
+    (firstNonExecutedTradeIndex !== -1 &&
+      firstNonExecutedTradeIndex < currentBuyGridTradeIndex);
+
+  // Check whether it's a single sell grid trade and whether it's executed.
+  const isSingleSellGrid =
+    currentSellGridTradeIndex >= 0 && sellGridTrade.length === 1;
+
+  // Return true if there is no manual trade and it has executed single sell grid trade.
+  // Store the manual trade and single trade status for the frontend
+  return {
+    hasObviousManualTrade,
+    isSingleSellGrid
+  };
+};
+
+/**
+ * Calculate nextBestBuyAmount
+ *
+ * @param {*} currentPrice
+ * @param {*} lastBuyPrice
+ * @param {*} sellTrigger
+ */
+const calculateNextBestBuyAmount = (
+  data,
+  { currentPrice, lastBuyPrice, sellTrigger }
+) => {
+  const {
+    symbolConfiguration: {
+      buy: { gridTrade: buyGridTrade }
+    }
+  } = data;
+
+  const { hasObviousManualTrade, isSingleSellGrid } =
+    nextBestBuyAmountCalculationConditions(data);
+
+  const totalBought = buyGridTrade
+    .filter(trade => trade.executed)
+    .map(order => ({
+      cummulativeQuoteQty: parseFloat(order.executedOrder.cummulativeQuoteQty),
+      executedQty: parseFloat(order.executedOrder.executedQty)
+    }))
+    .reduce(
+      (acc, o) => {
+        acc.amount += o.cummulativeQuoteQty;
+        acc.qty += o.executedQty;
+        return acc;
+      },
+      {
+        amount: 0,
+        qty: 0
+      }
+    );
+
+  const buyTrigger = 1 + (currentPrice - lastBuyPrice) / lastBuyPrice;
+
+  let amount = null;
+
+  if (!hasObviousManualTrade && isSingleSellGrid) {
+    amount =
+      (totalBought.amount -
+        totalBought.qty * buyTrigger * lastBuyPrice * sellTrigger) /
+      (sellTrigger - 1);
+  }
+
+  const calculation = {
+    currentPrice,
+    lastBuyPrice,
+    totalBoughtAmount: totalBought.amount,
+    totalBoughtQty: totalBought.qty,
+    buyTrigger,
+    sellTrigger,
+    hasObviousManualTrade,
+    isSingleSellGrid
+  };
+
+  return { amount, calculation };
+};
+
+const applyConservativeSell = (
+  _data,
+  { conservativeFactor, sellTriggerPercentage, buyGridTradeDepth }
+) => 1 + (sellTriggerPercentage - 1) * conservativeFactor ** buyGridTradeDepth;
 
 /**
  * Get symbol information, buy/sell indicators
@@ -19,61 +168,157 @@ const execute = async (logger, rawData) => {
       filterMinNotional: { minNotional }
     },
     symbolConfiguration: {
+      candles: { limit: candlesLimit },
       buy: {
         currentGridTradeIndex: currentBuyGridTradeIndex,
         currentGridTrade: currentBuyGridTrade,
+        gridTrade: buyGridTrade,
         athRestriction: {
           enabled: buyATHRestrictionEnabled,
+          candles: {
+            limit: buyATHRestrictionCandlesLimit,
+            interval: buyATHRestrictionCandlesInterval
+          },
           restrictionPercentage: buyATHRestrictionPercentage
         }
       },
       sell: {
         currentGridTrade: currentSellGridTrade,
-        stopLoss: { maxLossPercentage: sellMaxLossPercentage }
-      }
+        stopLoss: { maxLossPercentage: sellMaxLossPercentage },
+        conservativeMode: {
+          enabled: sellConservativeModeEnabled,
+          factor: conservativeFactor
+        }
+      },
+      botOptions: { tradingViews: tradingViewsConfig }
     },
     baseAssetBalance: { total: baseAssetTotalBalance },
     openOrders
   } = data;
 
-  const cachedIndicator =
-    JSON.parse(
-      await cache.hget('trailing-trade-symbols', `${symbol}-indicator-data`)
-    ) || {};
+  const candles = _.orderBy(
+    await mongo.findAll(
+      logger,
+      'trailing-trade-candles',
+      {
+        key: `${symbol}`
+      },
+      {
+        sort: {
+          time: -1
+        },
+        limit: candlesLimit
+      }
+    ),
+    ['time'],
+    ['desc']
+  );
 
-  if (_.isEmpty(cachedIndicator)) {
-    logger.info('Indicator data is not retrieved, wait for cache.');
+  if (_.isEmpty(candles)) {
     data.saveToCache = false;
     return data;
   }
 
-  const cachedLatestCandle =
+  // Flatten candles data to get lowest price
+  const candlesData = flattenCandlesData(candles);
+
+  // Get the lowest price
+  const lowestPrice = _.min(candlesData.low);
+
+  const highestPrice = _.max(candlesData.high);
+
+  // Retrieve ATH candles
+  let athPrice = null;
+
+  if (buyATHRestrictionEnabled) {
+    logger.info(
+      {
+        function: 'athCandles',
+        buyATHRestrictionEnabled,
+        buyATHRestrictionCandlesInterval,
+        buyATHRestrictionCandlesLimit
+      },
+      'Retrieving ATH candles from MongoDB'
+    );
+
+    const athCandles = _.orderBy(
+      await mongo.findAll(
+        logger,
+        'trailing-trade-ath-candles',
+        {
+          key: `${symbol}`
+        },
+        {
+          sort: {
+            time: -1
+          },
+          limit: buyATHRestrictionCandlesLimit
+        }
+      ),
+      ['time'],
+      ['desc']
+    );
+
+    // Flatten candles data to get ATH price
+    const athCandlesData = flattenCandlesData(athCandles);
+
+    // ATH (All The High) price
+    athPrice = _.max(athCandlesData.high);
+  } else {
+    logger.info(
+      {
+        debug: true,
+        function: 'athCandles',
+        buyATHRestrictionEnabled,
+        buyATHRestrictionCandlesInterval,
+        buyATHRestrictionCandlesLimit
+      },
+      'ATH Restriction is disabled'
+    );
+  }
+
+  const latestIndicators = {
+    highestPrice,
+    lowestPrice,
+    athPrice
+  };
+
+  let cachedLatestCandle =
     JSON.parse(
       await cache.hget('trailing-trade-symbols', `${symbol}-latest-candle`)
     ) || {};
 
   if (_.isEmpty(cachedLatestCandle)) {
-    logger.info('Last candle is not retrieved, wait for cache.');
-    data.saveToCache = false;
-    return data;
+    cachedLatestCandle = {
+      eventType: '24hrMiniTicker',
+      eventTime: candles[0].time,
+      symbol: candles[0].key,
+      close: candles[0].close
+    };
   }
 
-  const cachedTradingView =
-    JSON.parse(await cache.hget('trailing-trade-tradingview', `${symbol}`)) ||
-    {};
-
   // Set trading view
-  data.tradingView = cachedTradingView;
+  data.tradingViews = _.map(
+    await cache.hgetall(
+      `trailing-trade-tradingview:${symbol}:`,
+      `trailing-trade-tradingview:${symbol}:*`
+    ),
+    tradingView => JSON.parse(tradingView)
+  );
+
+  const tradingViewIntervals = (tradingViewsConfig || []).map(c => c.interval);
+  // Filter out only configured interval
+  data.tradingViews = data.tradingViews.filter(tv =>
+    tradingViewIntervals.includes(tv.request.interval)
+  );
 
   // Set last candle
   data.lastCandle = cachedLatestCandle;
   // Merge indicator data
   data.indicators = {
     ...data.indicators,
-    ...cachedIndicator
+    ...latestIndicators
   };
-
-  const { highestPrice, lowestPrice, athPrice } = data.indicators;
 
   // Get current price
   const currentPrice = parseFloat(cachedLatestCandle.close);
@@ -116,6 +361,14 @@ const execute = async (logger, rawData) => {
   let sellTriggerPrice = null;
   let sellDifference = null;
   let sellLimitPrice = null;
+  let sellConservativeModeApplicable = false;
+  let triggerPercentage = null;
+  let nextBestBuy = null;
+
+  const lastExecutedBuyTradeIndex = _.findLastIndex(
+    buyGridTrade,
+    trade => trade.executed === true
+  );
 
   if (lastBuyPrice > 0 && currentSellGridTrade !== null) {
     const {
@@ -123,9 +376,52 @@ const execute = async (logger, rawData) => {
       limitPercentage: sellLimitPercentage
     } = currentSellGridTrade;
 
-    sellTriggerPrice = lastBuyPrice * sellTriggerPercentage;
+    sellConservativeModeApplicable =
+      sellConservativeModeEnabled && lastExecutedBuyTradeIndex >= 1;
+
+    triggerPercentage = sellConservativeModeApplicable
+      ? applyConservativeSell(data, {
+          conservativeFactor,
+          sellTriggerPercentage,
+          buyGridTradeDepth: lastExecutedBuyTradeIndex
+        })
+      : sellTriggerPercentage;
+
+    sellTriggerPrice = lastBuyPrice * triggerPercentage;
     sellDifference = (1 - sellTriggerPrice / currentPrice) * 100;
     sellLimitPrice = currentPrice * sellLimitPercentage;
+  }
+  // ##############################
+
+  // #### Next best buy related variables
+  // Only for single sell grids without obvious manual buys.
+  let nextBestBuyAmount = null;
+  let nextBestBuyCalculation = null;
+
+  if (lastBuyPrice > 0) {
+    // If conservative mode is enabled, update the sell trigger for the next grid
+    // We won't compute nextBestBuy for multi-grid sells
+    const nextBestBuySellTriggerPercentage =
+      currentSellGridTrade !== null
+        ? currentSellGridTrade.triggerPercentage
+        : null;
+
+    const nextBestBuySellTrigger = sellConservativeModeEnabled
+      ? applyConservativeSell(data, {
+          conservativeFactor,
+          sellTriggerPercentage: nextBestBuySellTriggerPercentage,
+          buyGridTradeDepth: lastExecutedBuyTradeIndex + 1
+        })
+      : nextBestBuySellTriggerPercentage;
+
+    nextBestBuy = calculateNextBestBuyAmount(data, {
+      currentPrice,
+      lastBuyPrice,
+      sellTrigger: nextBestBuySellTrigger
+    });
+
+    nextBestBuyAmount = nextBestBuy.amount;
+    nextBestBuyCalculation = nextBestBuy.calculation;
   }
   // ##############################
 
@@ -154,7 +450,7 @@ const execute = async (logger, rawData) => {
   const newOpenOrders = openOrders.map(order => {
     const newOrder = order;
     newOrder.currentPrice = currentPrice;
-    newOrder.updatedAt = moment(order.time).utc();
+    newOrder.updatedAt = moment(order.time).utc().toDate();
 
     if (order.type !== 'STOP_LOSS_LIMIT') {
       return newOrder;
@@ -203,9 +499,11 @@ const execute = async (logger, rawData) => {
     athRestrictionPrice: buyATHRestrictionPrice,
     triggerPrice: buyTriggerPrice,
     difference: buyDifference,
+    nextBestBuyAmount,
+    nextBestBuyCalculation,
     openOrders: newOpenOrders?.filter(o => o.side.toLowerCase() === 'buy'),
     processMessage: _.get(data, 'buy.processMessage', ''),
-    updatedAt: moment().utc()
+    updatedAt: moment().utc().toDate()
   };
 
   data.sell = {
@@ -218,9 +516,11 @@ const execute = async (logger, rawData) => {
     stopLossDifference: sellStopLossDifference,
     currentProfit: sellCurrentProfit,
     currentProfitPercentage: sellCurrentProfitPercentage,
+    conservativeModeApplicable: sellConservativeModeApplicable,
+    triggerPercentage,
     openOrders: newOpenOrders?.filter(o => o.side.toLowerCase() === 'sell'),
     processMessage: _.get(data, 'sell.processMessage', ''),
-    updatedAt: moment().utc()
+    updatedAt: moment().utc().toDate()
   };
 
   return data;

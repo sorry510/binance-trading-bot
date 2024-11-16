@@ -2,133 +2,16 @@ const _ = require('lodash');
 const moment = require('moment');
 const { binance, slack } = require('../../../helpers');
 const {
-  getAndCacheOpenOrdersForSymbol,
-  getAccountInfoFromAPI,
   isExceedAPILimit,
   getAPILimit,
   saveOrderStats,
-  saveOverrideAction
+  saveOverrideAction,
+  refreshOpenOrdersAndAccountInfo
 } = require('../../trailingTradeHelper/common');
 const { saveGridTradeOrder } = require('../../trailingTradeHelper/order');
-
-/**
- * Check whether recommendation is allowed or not.
- *
- * @param {*} logger
- * @param {*} data
- * @returns
- */
-const isAllowedTradingViewRecommendation = (logger, data) => {
-  const {
-    symbolConfiguration: {
-      buy: {
-        tradingView: {
-          whenStrongBuy: tradingViewWhenStrongBuy,
-          whenBuy: tradingViewWhenBuy
-        }
-      },
-      botOptions: {
-        tradingView: {
-          useOnlyWithin: tradingViewUseOnlyWithin,
-          ifExpires: tradingViewIfExpires
-        }
-      }
-    },
-    tradingView,
-    overrideData
-  } = data;
-
-  const overrideCheckTradingView = _.get(
-    overrideData,
-    'checkTradingView',
-    false
-  );
-
-  // If this is override action, then process buy regardless recommendation.
-  if (overrideCheckTradingView === false && _.isEmpty(overrideData) === false) {
-    logger.info(
-      { overrideData },
-      'Override data is not empty. Ignore TradingView recommendation.'
-    );
-    return { isTradingViewAllowed: true, tradingViewRejectedReason: '' };
-  }
-
-  // If there is no tradingView result time or recommendation, then ignore TradingView recommendation.
-  const tradingViewTime = _.get(tradingView, 'result.time', '');
-
-  const tradingViewSummaryRecommendation = _.get(
-    tradingView,
-    'result.summary.RECOMMENDATION',
-    ''
-  );
-  if (tradingViewTime === '' || tradingViewSummaryRecommendation === '') {
-    logger.info(
-      { tradingViewTime, tradingViewSummaryRecommendation },
-      'TradingView time or recommendation is empty. Ignore TradingView recommendation.'
-    );
-    return { isTradingViewAllowed: true, tradingViewRejectedReason: '' };
-  }
-
-  // If tradingViewTime is more than configured time, then ignore TradingView recommendation.
-  const tradingViewUpdatedAt = moment
-    .utc(tradingViewTime, 'YYYY-MM-DDTHH:mm:ss.SSSSSS')
-    .add(tradingViewUseOnlyWithin, 'minutes');
-  const currentTime = moment.utc();
-  if (tradingViewUpdatedAt.isBefore(currentTime)) {
-    if (tradingViewIfExpires === 'do-not-buy') {
-      logger.info(
-        {
-          tradingViewUpdatedAt: tradingViewUpdatedAt.format(),
-          currentTime: currentTime.format()
-        },
-        `TradingView data is older than ${tradingViewUseOnlyWithin} minutes. Do not buy.`
-      );
-      return {
-        isTradingViewAllowed: false,
-        tradingViewRejectedReason:
-          `Do not place an order because ` +
-          `TradingView data is older than ${tradingViewUseOnlyWithin} minutes.`
-      };
-    }
-
-    logger.info(
-      {
-        tradingViewUpdatedAt: tradingViewUpdatedAt.format(),
-        currentTime: currentTime.format()
-      },
-      `TradingView data is older than ${tradingViewUseOnlyWithin} minutes. Ignore TradingView recommendation.`
-    );
-    return { isTradingViewAllowed: true, tradingViewRejectedReason: '' };
-  }
-
-  // Get allowed recommendation
-  const allowedRecommendations = [];
-  if (tradingViewWhenStrongBuy) {
-    allowedRecommendations.push('strong_buy');
-  }
-
-  if (tradingViewWhenBuy) {
-    allowedRecommendations.push('buy');
-  }
-
-  // If summary recommendation is not allowed recommendation, then prevent buy
-  if (
-    allowedRecommendations.length > 0 &&
-    allowedRecommendations.includes(
-      tradingViewSummaryRecommendation.toLowerCase()
-    ) === false
-  ) {
-    return {
-      isTradingViewAllowed: false,
-      tradingViewRejectedReason:
-        `Do not place an order because ` +
-        `TradingView recommendation is ${tradingViewSummaryRecommendation}.`
-    };
-  }
-
-  // Otherwise, simply allow
-  return { isTradingViewAllowed: true, tradingViewRejectedReason: '' };
-};
+const {
+  isBuyAllowedByTradingView
+} = require('../../trailingTradeHelper/tradingview');
 
 /**
  * Set message and return data
@@ -143,7 +26,7 @@ const setMessage = (logger, rawData, processMessage) => {
 
   logger.info({ data, saveLog: true }, processMessage);
   data.buy.processMessage = processMessage;
-  data.buy.updatedAt = moment().utc();
+  data.buy.updatedAt = moment().utc().toDate();
   return data;
 };
 
@@ -158,8 +41,7 @@ const execute = async (logger, rawData) => {
 
   const {
     symbol,
-    isLocked,
-    featureToggle: { notifyDebug },
+    featureToggle: { notifyDebug, notifyOrderConfirm },
     symbolInfo: {
       baseAsset,
       quoteAsset,
@@ -169,25 +51,15 @@ const execute = async (logger, rawData) => {
     },
     symbolConfiguration: {
       symbols,
-      buy: { enabled: tradingEnabled, currentGridTradeIndex, currentGridTrade },
-      system: { checkOrderExecutePeriod }
+      buy: { enabled: tradingEnabled, currentGridTradeIndex, currentGridTrade }
     },
     action,
     quoteAssetBalance: { free: quoteAssetFreeBalance },
     buy: { currentPrice, triggerPrice, openOrders },
-    tradingView,
+    tradingViews,
     overrideData
   } = data;
-
   const humanisedGridTradeIndex = currentGridTradeIndex + 1;
-
-  if (isLocked) {
-    logger.info(
-      { isLocked },
-      'Symbol is locked, do not process place-buy-order'
-    );
-    return data;
-  }
 
   if (action !== 'buy') {
     logger.info(`Do not process a buy order because action is not 'buy'.`);
@@ -212,14 +84,15 @@ const execute = async (logger, rawData) => {
   }
 
   const { isTradingViewAllowed, tradingViewRejectedReason } =
-    isAllowedTradingViewRecommendation(logger, data);
+    isBuyAllowedByTradingView(logger, data);
+
   if (isTradingViewAllowed === false) {
     await saveOverrideAction(
       logger,
       symbol,
       {
         action: 'buy',
-        actionAt: moment().add(1, 'minutes').format(),
+        actionAt: moment().add(1, 'minutes').toISOString(),
         triggeredBy: 'buy-order-trading-view',
         notify: false,
         checkTradingView: true
@@ -312,11 +185,9 @@ const execute = async (logger, rawData) => {
       lotStepSizePrecision
     )
   );
-
   // If free balance is exactly same as minimum notional, then it will be failed to place the order
   // because it will be always less than minimum notional after calculating commission.
   // To avoid the minimum notional issue, add commission to free balance
-
   if (
     orgFreeBalance > parseFloat(minNotional) &&
     maxPurchaseAmount === parseFloat(minNotional)
@@ -335,21 +206,19 @@ const execute = async (logger, rawData) => {
       )
     );
   }
-
   logger.info({ orderQuantity }, 'Order quantity after commission');
 
-  if (orderQuantity * limitPrice < parseFloat(minNotional)) {
+  const orderAmount = orderQuantity * limitPrice;
+
+  if (orderAmount < parseFloat(minNotional)) {
     const processMessage =
       `Do not place a buy order for the grid trade #${humanisedGridTradeIndex} ` +
       `as not enough ${quoteAsset} ` +
       `to buy ${baseAsset} after calculating commission - Order amount: ${_.floor(
-        orderQuantity * limitPrice,
+        orderAmount,
         priceTickPrecision
       )} ${quoteAsset}, Minimum notional: ${minNotional}.`;
-    logger.info(
-      { calculatedAmount: orderQuantity * limitPrice, minNotional },
-      processMessage
-    );
+    logger.info({ calculatedAmount: orderAmount, minNotional }, processMessage);
 
     return setMessage(logger, data, processMessage);
   }
@@ -395,13 +264,13 @@ const execute = async (logger, rawData) => {
     stopPercentage,
     limitPrice,
     triggerPrice,
-    tradingView: {
+    tradingViews: _.map(tradingViews, tradingView => ({
       request: _.get(tradingView, 'request', {}),
       result: {
         time: _.get(tradingView, 'result.time', ''),
         summary: _.get(tradingView, 'result.summary', {})
       }
-    },
+    })),
     overrideData
   };
 
@@ -410,14 +279,13 @@ const execute = async (logger, rawData) => {
     notifyMessage.calculationParams = calculationParams;
   }
 
-  slack.sendMessage(
-    `${symbol} Buy Action Grid Trade #${humanisedGridTradeIndex} (${moment().format(
-      'HH:mm:ss.SSS'
-    )}): *STOP_LOSS_LIMIT*\n` +
-      `- Order Params: \n` +
-      `\`\`\`${JSON.stringify(notifyMessage, undefined, 2)}\`\`\`\n` +
-      `- Current API Usage: ${getAPILimit(logger)}`
-  );
+  if (notifyDebug || notifyOrderConfirm)
+    slack.sendMessage(
+      `*${symbol}* Action - Buy Trade #${humanisedGridTradeIndex}: *STOP_LOSS_LIMIT*\n` +
+        `- Order Params: \n` +
+        `\`\`\`${JSON.stringify(notifyMessage, undefined, 2)}\`\`\``,
+      { symbol, apiLimit: getAPILimit(logger) }
+    );
 
   logger.info(
     {
@@ -438,33 +306,32 @@ const execute = async (logger, rawData) => {
   // Set last buy grid order to be checked until it is executed
   await saveGridTradeOrder(logger, `${symbol}-grid-trade-last-buy-order`, {
     ...orderResult,
-    currentGridTradeIndex,
-    nextCheck: moment().add(checkOrderExecutePeriod, 'seconds').format()
+    currentGridTradeIndex
   });
 
   // Save number of open orders
   await saveOrderStats(logger, symbols);
 
-  // Get open orders and update cache
-  data.openOrders = await getAndCacheOpenOrdersForSymbol(logger, symbol);
-  data.buy.openOrders = data.openOrders.filter(
-    o => o.side.toLowerCase() === 'buy'
-  );
+  const {
+    accountInfo,
+    openOrders: updatedOpenOrders,
+    buyOpenOrders
+  } = await refreshOpenOrdersAndAccountInfo(logger, symbol);
 
-  // Refresh account info
-  data.accountInfo = await getAccountInfoFromAPI(logger);
+  data.accountInfo = accountInfo;
+  data.openOrders = updatedOpenOrders;
+  data.buy.openOrders = buyOpenOrders;
 
-  slack.sendMessage(
-    `${symbol} Buy Action Grid Trade #${humanisedGridTradeIndex} Result (${moment().format(
-      'HH:mm:ss.SSS'
-    )}): *STOP_LOSS_LIMIT*\n` +
-      `- Order Result: \`\`\`${JSON.stringify(
-        orderResult,
-        undefined,
-        2
-      )}\`\`\`\n` +
-      `- Current API Usage: ${getAPILimit(logger)}`
-  );
+  if (notifyDebug || notifyOrderConfirm)
+    slack.sendMessage(
+      `*${symbol}* Buy Action Grid Trade #${humanisedGridTradeIndex} Result: *STOP_LOSS_LIMIT*\n` +
+        `- Order Result: \`\`\`${JSON.stringify(
+          orderResult,
+          undefined,
+          2
+        )}\`\`\``,
+      { symbol, apiLimit: getAPILimit(logger) }
+    );
 
   return setMessage(
     logger,

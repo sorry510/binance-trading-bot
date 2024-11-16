@@ -1,10 +1,15 @@
 /* eslint-disable global-require */
+const fs = require('fs');
+const path = require('path');
+const { sep: directorySeparator } = require('path');
+
 describe('webserver/handlers/grid-trade-logs-export', () => {
   let loggerMock;
   let mongoMock;
 
-  let rsDownload;
   let rsSend;
+
+  let fileFolder;
 
   const appMock = {
     route: null
@@ -13,15 +18,16 @@ describe('webserver/handlers/grid-trade-logs-export', () => {
   let postReq;
 
   let mockVerifyAuthenticated;
+  global.appRoot = path.join(__dirname, '/../../../../');
 
   beforeEach(async () => {
     jest.clearAllMocks().resetModules();
 
     rsSend = jest.fn().mockResolvedValue(true);
-    rsDownload = jest.fn().mockResolvedValue(true);
+
     appMock.route = jest.fn(() => ({
       post: jest.fn().mockImplementation(func => {
-        func(postReq, { send: rsSend, download: rsDownload });
+        func(postReq, { send: rsSend });
       })
     }));
   });
@@ -89,6 +95,10 @@ describe('webserver/handlers/grid-trade-logs-export', () => {
     ].forEach(t => {
       describe(`found rows - ${t.desc}`, () => {
         beforeEach(async () => {
+          // Delete log folder
+          fileFolder = path.join(__dirname, '/../../../../../public/data/logs');
+          fs.rmSync(fileFolder, { recursive: true, force: true });
+
           const { logger, mongo } = require('../../../../helpers');
 
           loggerMock = logger;
@@ -129,15 +139,35 @@ describe('webserver/handlers/grid-trade-logs-export', () => {
         });
 
         it('return data', () => {
-          expect(rsDownload).toHaveBeenCalledWith(
-            expect.stringMatching('/tmp/(.+).json')
-          );
+          expect(rsSend).toHaveBeenCalledWith({
+            success: true,
+            status: 200,
+            message: 'Exported log file',
+            data: {
+              fileName: expect.any(String)
+            }
+          });
         });
       });
     });
 
     describe(`cannot find rows`, () => {
       beforeEach(async () => {
+        // Delete log folder
+        fileFolder = path.join(__dirname, '/../../../../../public/data/logs');
+        fs.rmSync(fileFolder, { recursive: true, force: true });
+
+        if (!fs.existsSync(fileFolder)) {
+          fs.mkdirSync(fileFolder);
+        }
+
+        // Create 10 files to test keeping last 10 logs
+        for (let i = 1; i <= 10; i += 1) {
+          fs.writeFileSync(
+            `${fileFolder}${directorySeparator}file${i}.json`,
+            JSON.stringify([{ log: 'value' }])
+          );
+        }
         const { logger, mongo } = require('../../../../helpers');
 
         loggerMock = logger;
@@ -166,6 +196,11 @@ describe('webserver/handlers/grid-trade-logs-export', () => {
         await handleGridTradeLogsExport(loggerMock, appMock);
       });
 
+      it('keeps 10 logs in the folder', () => {
+        const files = fs.readdirSync(fileFolder);
+        expect(files.length).toBe(10);
+      });
+
       it('triggers mongo.findAll', () => {
         expect(mongoMock.findAll).toHaveBeenCalledWith(
           loggerMock,
@@ -180,9 +215,14 @@ describe('webserver/handlers/grid-trade-logs-export', () => {
       });
 
       it('return data', () => {
-        expect(rsDownload).toHaveBeenCalledWith(
-          expect.stringMatching('/tmp/(.+).json')
-        );
+        expect(rsSend).toHaveBeenCalledWith({
+          success: true,
+          status: 200,
+          message: 'Exported log file',
+          data: {
+            fileName: expect.any(String)
+          }
+        });
       });
     });
   });

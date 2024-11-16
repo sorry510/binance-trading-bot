@@ -14,6 +14,7 @@ services:
       - ./app:/srv/app
       - ./public:/srv/public
       - ./migrations:/srv/migrations
+      - ./scripts:/srv/scripts
     env_file:
       - .env
     restart: unless-stopped
@@ -23,6 +24,9 @@ services:
       - BINANCE_REDIS_HOST=binance-redis
       - BINANCE_REDIS_PORT=6379
       - BINANCE_REDIS_PASSWORD=secretp422
+      - BINANCE_LOG_LEVEL=DEBUG
+      - BINANCE_TRADINGVIEW_HOST=tradingview
+      - BINANCE_TRADINGVIEW_PORT=8082
     ports:
       - 8080:80
     logging:
@@ -39,8 +43,11 @@ services:
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
+      # https://docs.python.org/3/howto/logging.html#logging-levels
+      - BINANCE_TRADINGVIEW_LOG_LEVEL=INFO
+      - BINANCE_TRADINGVIEW_PORT=8082
     ports:
-      - 8082:8080
+      - 8082:8082
     logging:
       driver: 'json-file'
       options:

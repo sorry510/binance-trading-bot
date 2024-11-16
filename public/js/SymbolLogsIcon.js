@@ -103,37 +103,17 @@ class SymbolLogsIcon extends React.Component {
     return axios
       .post('/grid-trade-logs-export', {
         authToken,
-        symbol,
-        responseType: 'blob'
+        symbol
       })
       .then(response => {
-        const filename = `${symbol}-${moment().format(
-          'YYYY-MM-DD-HH-MM-SS'
-        )}.json`;
-        const contentType = 'application/json;charset=utf-8;';
-        if (window.navigator && window.navigator.msSaveOrOpenBlob) {
-          const blob = new Blob(
-            [
-              decodeURIComponent(
-                encodeURI(JSON.stringify(response.data, null, 2))
-              )
-            ],
-            { type: contentType }
-          );
-          navigator.msSaveOrOpenBlob(blob, filename);
-        } else {
-          const a = document.createElement('a');
-          a.download = filename;
-          a.href =
-            'data:' +
-            contentType +
-            ',' +
-            encodeURIComponent(JSON.stringify(response.data, null, 2));
-          a.target = '_blank';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        }
+        const {
+          data: {
+            data: { fileName }
+          }
+        } = response;
+
+        const filePath = `data/logs/${fileName}`;
+        window.open(filePath, '_blank');
 
         this.setState({
           loading: false
@@ -169,6 +149,13 @@ class SymbolLogsIcon extends React.Component {
 
     const totalPages = Math.ceil(stats.rows / limit);
     // If total
+    paginationItems.push(
+      <Pagination.First
+        key='first'
+        disabled={page === 1 || totalPages === 1}
+        onClick={() => this.setPage(1)}
+      />
+    );
     if (page === 1 || totalPages === 1) {
       paginationItems.push(
         <Pagination.Prev key='pagination-item-prev' disabled />
@@ -181,28 +168,22 @@ class SymbolLogsIcon extends React.Component {
         />
       );
     }
-    [...Array(8).keys()].forEach(x => {
-      if (page === 1 && x === 0) {
-        paginationItems.push(
-          <Pagination.Item
-            active
-            key={`pagination-item-${x}`}
-            onClick={() => this.setPage(page)}>
-            {page}
-          </Pagination.Item>
-        );
-      } else {
-        const pageNum = page === 1 ? page + x : page + x - 1;
-        paginationItems.push(
-          <Pagination.Item
-            active={pageNum === page}
-            disabled={pageNum > totalPages}
-            key={`pagination-item-${x}`}
-            onClick={() => this.setPage(pageNum)}>
-            {pageNum}
-          </Pagination.Item>
-        );
-      }
+    const maxButtons = 8;
+    const buttons = Math.min(maxButtons, ~~totalPages);
+    [...Array(buttons).keys()].forEach(x => {
+      const pageNum = Math.min(
+        Math.max(x + 1, page + x + 1 - Math.ceil(buttons / 2)),
+        totalPages + x + 1 - buttons
+      );
+      paginationItems.push(
+        <Pagination.Item
+          active={pageNum === page}
+          disabled={pageNum > totalPages}
+          key={`pagination-item-${x}`}
+          onClick={() => this.setPage(pageNum)}>
+          {pageNum}
+        </Pagination.Item>
+      );
     });
     if (page === totalPages || page >= totalPages) {
       paginationItems.push(
@@ -216,17 +197,41 @@ class SymbolLogsIcon extends React.Component {
         />
       );
     }
+    const lastPage = totalPages;
+    paginationItems.push(
+      <Pagination.Last
+        key='last'
+        disabled={page === totalPages || page >= totalPages}
+        onClick={() => this.setPage(lastPage)}
+      />
+    );
 
     const logRows = rows.map((row, _index) => {
+      const uuid = _.get(row, ['data', 'correlationId'], '').split('-').pop();
+      const step = _.get(row, ['data', 'stepName'], 'Unknown');
+      let uuidBlock = '';
+      if (uuid) {
+        uuidBlock = (
+          <div>
+            <code>
+              {uuid} - {step}
+            </code>
+          </div>
+        );
+      }
+
       return (
         <React.Fragment key={'symbol-grid-trade-log-' + row._id}>
           <tr>
             <td
-              className='text-center align-middle'
+              className='text-center align-top'
               title={moment(row.loggedAt).format()}>
-              {moment(row.loggedAt).format('hh:mm:ss A')}
+              {moment(row.loggedAt).format('HH:mm:ss.SSS')}
             </td>
-            <td>{row.msg}</td>
+            <td>
+              {uuidBlock}
+              {row.msg}
+            </td>
             <td className='text-center'>
               <button
                 type='button'

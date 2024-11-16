@@ -2,6 +2,10 @@
   "mode": "test",
   "tz": "Australia/Melbourne",
   "appName": "Binance Trading Bot",
+  "demoMode": false,
+  "frontend": {
+    "port": 80
+  },
   "binance": {
     "live": {
       "apiKey": "",
@@ -22,6 +26,10 @@
     "host": "binance-mongo",
     "port": 27017,
     "database": "binance-bot"
+  },
+  "tradingview": {
+    "host": "tradingview",
+    "port": 8080
   },
   "slack": {
     "enabled": false,
@@ -66,12 +74,7 @@
           "triggerAfter": 20,
           "conditions": {
             "whenLessThanATHRestriction": true,
-            "afterDisabledPeriod": true,
-            "tradingView": {
-              "overrideInterval": "",
-              "whenStrongBuy": true,
-              "whenBuy": true
-            }
+            "afterDisabledPeriod": true
           }
         },
         "orderLimit": {
@@ -79,8 +82,23 @@
           "maxBuyOpenOrders": 3,
           "maxOpenTrades": 5
         },
-        "tradingView": {
-          "interval": "",
+        "tradingViews": [
+          {
+            "interval": "1h",
+            "buy": {
+              "whenStrongBuy": true,
+              "whenBuy": true
+            },
+            "sell": {
+              "forceSellOverZeroBelowTriggerPrice": {
+                "whenNeutral": false,
+                "whenSell": false,
+                "whenStrongSell": false
+              }
+            }
+          }
+        ],
+        "tradingViewOptions": {
           "useOnlyWithin": 5,
           "ifExpires": "ignore"
         },
@@ -114,10 +132,6 @@
             "limit": 30
           },
           "restrictionPercentage": 0.9
-        },
-        "tradingView": {
-          "whenStrongBuy": true,
-          "whenBuy": true
         }
       },
       "sell": {
@@ -137,12 +151,9 @@
           "disableBuyMinutes": 360,
           "orderType": "market"
         },
-        "tradingView": {
-          "forceSellOverZeroBelowTriggerPrice": {
-            "whenNeutral": false,
-            "whenSell": false,
-            "whenStrongSell": false
-          }
+        "conservativeMode": {
+          "enabled": false,
+          "factor": 0.5
         }
       },
       "system": {
@@ -154,6 +165,10 @@
       }
     },
     "trailingTradeIndicator": {
+      "enabled": true,
+      "cronTime": "* * * * * *"
+    },
+    "tradingView": {
       "enabled": true,
       "cronTime": "* * * * * *"
     }

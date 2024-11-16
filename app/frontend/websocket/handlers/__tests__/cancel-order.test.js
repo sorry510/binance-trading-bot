@@ -5,6 +5,8 @@ describe('cancel-order.js', () => {
 
   let loggerMock;
 
+  let mockExecute;
+
   let mockSaveOverrideAction;
 
   beforeEach(() => {
@@ -21,19 +23,30 @@ describe('cancel-order.js', () => {
     jest.mock('../../../../cronjob/trailingTradeHelper/common', () => ({
       saveOverrideAction: mockSaveOverrideAction
     }));
+
+    mockExecute = jest.fn((funcLogger, symbol, jobPayload) => {
+      if (!funcLogger || !symbol || !jobPayload) return false;
+      return jobPayload.preprocessFn();
+    });
+
+    jest.mock('../../../../cronjob/trailingTradeHelper/queue', () => ({
+      execute: mockExecute
+    }));
   });
 
   beforeEach(async () => {
     const { logger } = require('../../../../helpers');
 
     loggerMock = logger;
+    loggerMock.fields = { correlationId: 'correlationId' };
 
     const { handleCancelOrder } = require('../cancel-order');
     await handleCancelOrder(loggerMock, mockWebSocketServer, {
       data: {
         symbol: 'BTCUSDT',
         order: {
-          some: 'value'
+          some: 'value',
+          side: 'buy'
         }
       }
     });
@@ -45,12 +58,20 @@ describe('cancel-order.js', () => {
       'BTCUSDT',
       {
         action: 'cancel-order',
-        order: { some: 'value' },
+        order: { some: 'value', side: 'buy' },
         actionAt: expect.any(String),
         triggeredBy: 'user'
       },
-      'Cancelling the order action has been received. Wait for cancelling the order.'
+      'Cancelling the buy order action has been received. Wait for cancelling the order.'
     );
+  });
+
+  it('triggers queue.execute', () => {
+    expect(mockExecute).toHaveBeenCalledWith(loggerMock, 'BTCUSDT', {
+      correlationId: 'correlationId',
+      preprocessFn: expect.any(Function),
+      processFn: expect.any(Function)
+    });
   });
 
   it('triggers ws.send', () => {
@@ -58,7 +79,7 @@ describe('cancel-order.js', () => {
       JSON.stringify({
         result: true,
         type: 'cancel-order-result',
-        message: 'Cancelling the order action has been received.'
+        message: 'Cancelling the buy order action has been received.'
       })
     );
   });

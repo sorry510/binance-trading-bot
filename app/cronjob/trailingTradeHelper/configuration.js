@@ -51,6 +51,15 @@ const reconfigureIndex = async (logger, configuration) => {
  * @param {*} configuration
  */
 const saveGlobalConfiguration = async (logger, configuration) => {
+  // get old configuration before saving the new one to compare
+  const oldConfiguration = await mongo.findOne(
+    logger,
+    'trailing-trade-common',
+    {
+      key: 'configuration'
+    }
+  );
+
   // Save to cache for watching changes.
   const result = await mongo.upsertOne(
     logger,
@@ -67,7 +76,24 @@ const saveGlobalConfiguration = async (logger, configuration) => {
   await cache.hdelall('trailing-trade-configurations:*');
 
   await reconfigureIndex(logger, configuration);
-  PubSub.publish('reset-binance-websocket', true);
+
+  // reset all websockets only when symbols, candles or ath candles are changed
+  if (
+    _.isEqual(
+      _.get(oldConfiguration, 'symbols', []),
+      _.get(configuration, 'symbols', [])
+    ) === false ||
+    _.isEqual(
+      _.get(oldConfiguration, 'candles', {}),
+      _.get(configuration, 'candles', {})
+    ) === false ||
+    _.isEqual(
+      _.get(oldConfiguration, ['buy', 'athRestriction', 'candles'], {}),
+      _.get(configuration, ['buy', 'athRestriction', 'candles'], {})
+    ) === false
+  ) {
+    PubSub.publish('reset-all-websockets', true);
+  }
 
   return result;
 };
@@ -78,7 +104,7 @@ const saveGlobalConfiguration = async (logger, configuration) => {
  * @param {*} logger
  */
 const getGlobalConfiguration = async logger => {
-  const orgConfigValue = config.get('jobs.trailingTrade');
+  const orgConfigValue = _.cloneDeep(config.get('jobs.trailingTrade'));
 
   orgConfigValue.symbols = Object.values(orgConfigValue.symbols);
 
@@ -174,6 +200,8 @@ const saveSymbolConfiguration = async (
     return {};
   }
 
+  const oldConfiguration = await getSymbolConfiguration(logger, symbol);
+
   const result = await mongo.upsertOne(
     logger,
     'trailing-trade-symbols',
@@ -187,6 +215,20 @@ const saveSymbolConfiguration = async (
   );
 
   await cache.hdel('trailing-trade-configurations', symbol);
+
+  // reset symbol websockets only when candles or ath candles are changed
+  if (
+    _.isEqual(
+      _.get(oldConfiguration, 'candles', {}),
+      _.get(configuration, 'candles', {})
+    ) === false ||
+    _.isEqual(
+      _.get(oldConfiguration, ['buy', 'athRestriction', 'candles'], {}),
+      _.get(configuration, ['buy', 'athRestriction', 'candles'], {})
+    ) === false
+  ) {
+    PubSub.publish('reset-symbol-websockets', symbol);
+  }
 
   return result;
 };
@@ -409,12 +451,12 @@ const archiveSymbolGridTrade = async (logger, symbol = null) => {
     ..._.pick(symbolInfo, ['baseAsset', 'quoteAsset']),
     ...gridProfit,
     ..._.omit(symbolGridTrade, 'key', '_id'),
-    archivedAt: moment().format()
+    archivedAt: moment().toISOString()
   };
 
   await saveSymbolGridTradeArchive(
     logger,
-    `${symbol}-${moment().format()}`,
+    `${symbol}-${moment().toISOString()}`,
     archivedGridTrade
   );
 
@@ -451,6 +493,9 @@ const deleteSymbolConfiguration = async (logger, symbol) => {
   });
 
   await cache.hdel('trailing-trade-configurations', symbol);
+
+  PubSub.publish('reset-symbol-websockets', symbol);
+
   return result;
 };
 
@@ -814,6 +859,23 @@ const postProcessConfiguration = async (
   return newConfiguration;
 };
 
+const getBotOptionTradingViews = (
+  _logger,
+  _cachedSymbolInfo,
+  globalConfiguration,
+  symbolConfiguration
+) => {
+  const {
+    botOptions: { tradingViews: globalTradingViews }
+  } = globalConfiguration;
+
+  const {
+    botOptions: { tradingViews: symbolTradingViews }
+  } = symbolConfiguration;
+
+  return symbolTradingViews ?? globalTradingViews;
+};
+
 /**
  * Get global/symbol configuration
  *
@@ -824,7 +886,10 @@ const getConfiguration = async (logger, symbol = null) => {
   // To reduce MongoDB query, try to get cached configuration first.
   const cachedConfiguration =
     JSON.parse(
-      await cache.hget('trailing-trade-configurations', `${symbol || 'global'}`)
+      await cache.hgetWithoutLock(
+        'trailing-trade-configurations',
+        `${symbol || 'global'}`
+      )
     ) || {};
 
   if (_.isEmpty(cachedConfiguration) === false) {
@@ -840,7 +905,12 @@ const getConfiguration = async (logger, symbol = null) => {
   let mergedConfigValue = _.defaultsDeep(
     symbolConfigValue,
     symbol !== null
-      ? _.omit(globalConfigValue, 'buy.gridTrade', 'sell.gridTrade')
+      ? _.omit(
+          globalConfigValue,
+          'buy.gridTrade',
+          'sell.gridTrade',
+          'botOptions.tradingViews'
+        )
       : globalConfigValue
   );
   let cachedSymbolInfo;
@@ -848,7 +918,10 @@ const getConfiguration = async (logger, symbol = null) => {
   if (symbol !== null) {
     cachedSymbolInfo =
       JSON.parse(
-        await cache.hget('trailing-trade-symbols', `${symbol}-symbol-info`)
+        await cache.hgetWithoutLock(
+          'trailing-trade-symbols',
+          `${symbol}-symbol-info`
+        )
       ) || {};
 
     // Post process configuration value to prefill some default values
@@ -864,6 +937,10 @@ const getConfiguration = async (logger, symbol = null) => {
       {
         key: 'sell.gridTrade',
         keyFunc: getGridTradeSell
+      },
+      {
+        key: 'botOptions.tradingViews',
+        keyFunc: getBotOptionTradingViews
       }
     ].forEach(d => {
       const { key, keyFunc } = d;

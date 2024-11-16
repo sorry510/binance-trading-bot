@@ -1,4 +1,5 @@
 /* eslint-disable global-require */
+const path = require('path');
 
 describe('server-frontend', () => {
   let mockExpressStatic;
@@ -11,6 +12,7 @@ describe('server-frontend', () => {
 
   let mockCompression;
   let mockCors;
+  let mockFileUpload;
 
   let mockConfigureWebServer;
   let mockConfigureWebSocket;
@@ -23,6 +25,7 @@ describe('server-frontend', () => {
 
   let mockRateLimiterMiddlewareReq;
   let mockRateLimiterMiddlewareResSend;
+  let mockRateLimiterMiddlewareResAttachment;
   let mockRateLimiterMiddlewareResStatus;
   let mockRateLimiterMiddlewareRes;
   let mockRateLimiterMiddlewareNext;
@@ -31,8 +34,13 @@ describe('server-frontend', () => {
   let cacheMock;
   let loggerMock;
 
+  let reqPath;
+
+  global.appRoot = path.join(__dirname, '/../');
+
   beforeEach(() => {
     jest.clearAllMocks().resetModules();
+    reqPath = '';
 
     config = require('config');
 
@@ -41,6 +49,7 @@ describe('server-frontend', () => {
 
     mockCompression = jest.fn().mockReturnValue(true);
     mockCors = jest.fn().mockReturnValue(true);
+    mockFileUpload = jest.fn().mockReturnValue(true);
 
     mockRateLimiterRedisGet = jest.fn().mockReturnValue({ remainingPoints: 5 });
     mockRateLimiterRedis = jest.fn().mockImplementation(() => ({
@@ -68,8 +77,11 @@ describe('server-frontend', () => {
     mockRateLimiterMiddlewareResStatus = jest.fn().mockImplementation(() => ({
       send: mockRateLimiterMiddlewareResSend
     }));
+    mockRateLimiterMiddlewareResAttachment = jest.fn().mockReturnValue(true);
+
     mockRateLimiterMiddlewareRes = {
-      status: mockRateLimiterMiddlewareResStatus
+      status: mockRateLimiterMiddlewareResStatus,
+      attachment: mockRateLimiterMiddlewareResAttachment
     };
 
     mockRateLimiterMiddlewareNext = jest.fn().mockReturnValue(true);
@@ -79,6 +91,16 @@ describe('server-frontend', () => {
         mockCompression();
       } else if (fn.name === 'corsMiddleware') {
         mockCors();
+      } else if (fn.name === 'fileUpload') {
+        mockFileUpload();
+      } else if (fn.name === 'attachmentMiddleware') {
+        await fn(
+          {
+            path: reqPath
+          },
+          mockRateLimiterMiddlewareRes,
+          mockRateLimiterMiddlewareNext
+        );
       } else if (fn.name === 'rateLimiterMiddleware') {
         await fn(
           mockRateLimiterMiddlewareReq,
@@ -170,7 +192,7 @@ describe('server-frontend', () => {
       });
 
       it('triggers server.listen', () => {
-        expect(mockExpressListen).toHaveBeenCalledWith(80);
+        expect(mockExpressListen).toHaveBeenCalledWith('value-frontend.port');
       });
 
       it('triggers configureWebServer', () => {
@@ -297,9 +319,28 @@ describe('server-frontend', () => {
             expect.stringContaining(`You are blocked`)
           );
         });
+      });
 
-        it('does not trigger next', () => {
-          expect(mockRateLimiterMiddlewareNext).not.toHaveBeenCalled();
+      describe('when request is for data log', () => {
+        beforeEach(() => {
+          reqPath = '/data/logs/BTC.json';
+          mockRateLimiterRedisGet = jest
+            .fn()
+            .mockReturnValue({ remainingPoints: 5 });
+          mockRateLimiterRedis = jest.fn().mockImplementation(() => ({
+            get: mockRateLimiterRedisGet
+          }));
+
+          jest.mock('rate-limiter-flexible', () => ({
+            RateLimiterRedis: mockRateLimiterRedis
+          }));
+
+          const { runFrontend } = require('../server-frontend');
+          runFrontend(loggerMock);
+        });
+
+        it('triggers res.attachment', () => {
+          expect(mockRateLimiterMiddlewareResAttachment).toHaveBeenCalled();
         });
       });
     });

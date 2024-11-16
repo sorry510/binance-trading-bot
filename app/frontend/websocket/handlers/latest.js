@@ -1,5 +1,4 @@
 const _ = require('lodash');
-
 const { version } = require('../../../../package.json');
 
 const { binance, cache } = require('../../../helpers');
@@ -8,22 +7,17 @@ const {
 } = require('../../../cronjob/trailingTradeHelper/configuration');
 
 const {
-  isActionDisabled
+  isActionDisabled,
+  countCacheTrailingTradeSymbols,
+  getCacheTrailingTradeSymbols,
+  getCacheTrailingTradeTotalProfitAndLoss,
+  getCacheTrailingTradeQuoteEstimates
 } = require('../../../cronjob/trailingTradeHelper/common');
-
-const getSymbolFromKey = key => {
-  const fragments = key.split('-');
-  const symbol = fragments[0];
-  fragments.shift();
-  return {
-    symbol,
-    newKey: fragments.join('-')
-  };
-};
 
 const handleLatest = async (logger, ws, payload) => {
   const globalConfiguration = await getConfiguration(logger);
-  logger.info({ globalConfiguration }, 'Configuration from MongoDB');
+
+  const { sortByDesc, sortBy, searchKeyword, page } = payload.data;
 
   // If not authenticated and lock list is enabled, then do not send any information.
   if (
@@ -52,10 +46,36 @@ const handleLatest = async (logger, ws, payload) => {
     'trailing-trade-common:*'
   );
 
-  const cacheTrailingTradeSymbols = await cache.hgetall(
-    'trailing-trade-symbols:',
-    'trailing-trade-symbols:*-processed-data'
+  const cacheTradingViews = _.map(
+    await cache.hgetall(
+      'trailing-trade-tradingview:',
+      'trailing-trade-tradingview:*'
+    ),
+    tradingView => JSON.parse(tradingView)
   );
+
+  const symbolsPerPage = 12;
+
+  const monitoringSymbolsCount = globalConfiguration.symbols.length;
+
+  const cachedMonitoringSymbolsCount = await countCacheTrailingTradeSymbols(
+    logger
+  );
+
+  const totalPages = _.ceil(cachedMonitoringSymbolsCount / symbolsPerPage);
+
+  const cacheTrailingTradeSymbols = await getCacheTrailingTradeSymbols(
+    logger,
+    sortByDesc,
+    sortBy,
+    page,
+    symbolsPerPage,
+    searchKeyword
+  );
+
+  // Calculate total profit/loss
+  const cacheTrailingTradeTotalProfitAndLoss =
+    await getCacheTrailingTradeTotalProfitAndLoss(logger);
 
   const cacheTrailingTradeClosedTrades = _.map(
     await cache.hgetall(
@@ -65,55 +85,83 @@ const handleLatest = async (logger, ws, payload) => {
     stats => JSON.parse(stats)
   );
 
+  const streamsCount = await cache.hgetWithoutLock(
+    'trailing-trade-streams',
+    'count'
+  );
+
   const stats = {
-    symbols: {}
+    symbols: await Promise.all(
+      _.map(cacheTrailingTradeSymbols, async symbol => {
+        const newSymbol = {
+          ...symbol,
+          isActionDisabled: await isActionDisabled(symbol.symbol)
+        };
+
+        return newSymbol;
+      })
+    ),
+    tradingViews: cacheTradingViews
   };
 
+  const cacheTrailingTradeQuoteEstimates =
+    await getCacheTrailingTradeQuoteEstimates(logger);
+  const quoteEstimatesGroupedByBaseAsset = _.groupBy(
+    cacheTrailingTradeQuoteEstimates,
+    'baseAsset'
+  );
+
   let common = {};
-  try {
-    common = {
-      version,
-      gitHash: process.env.GIT_HASH || 'unspecified',
-      accountInfo: JSON.parse(cacheTrailingTradeCommon['account-info']),
-      exchangeSymbols: JSON.parse(cacheTrailingTradeCommon['exchange-symbols']),
-      apiInfo: binance.client.getInfo(),
-      closedTradesSetting: JSON.parse(
-        cacheTrailingTradeCommon['closed-trades']
-      ),
-      closedTrades: cacheTrailingTradeClosedTrades,
-      orderStats: {
-        numberOfOpenTrades: parseInt(
-          cacheTrailingTradeCommon['number-of-open-trades'],
-          10
-        ),
-        numberOfBuyOpenOrders: parseInt(
-          cacheTrailingTradeCommon['number-of-buy-open-orders'],
-          10
-        )
-      }
+  const accountInfo = JSON.parse(
+    cacheTrailingTradeCommon['account-info'] || '{}'
+  );
+  accountInfo.balances = (accountInfo.balances || []).map(balance => {
+    const quoteEstimate = {
+      quote: null,
+      estimate: null,
+      tickSize: null
     };
-  } catch (e) {
-    logger.error({ e }, 'Something wrong with trailing-trade-common cache');
-    return;
-  }
 
-  _.forIn(cacheTrailingTradeSymbols, (value, key) => {
-    const { symbol, newKey } = getSymbolFromKey(key);
-
-    if (newKey === 'processed-data') {
-      stats.symbols[symbol] = JSON.parse(value);
+    if (quoteEstimatesGroupedByBaseAsset[balance.asset]) {
+      quoteEstimate.quote =
+        quoteEstimatesGroupedByBaseAsset[balance.asset][0].quoteAsset;
+      quoteEstimate.estimate =
+        quoteEstimatesGroupedByBaseAsset[balance.asset][0].estimatedValue;
+      quoteEstimate.tickSize =
+        quoteEstimatesGroupedByBaseAsset[balance.asset][0].tickSize;
     }
+
+    return {
+      ...balance,
+      ...quoteEstimate
+    };
   });
 
-  stats.symbols = await Promise.all(
-    _.map(stats.symbols, async symbol => {
-      const newSymbol = symbol;
-
-      // Retreive action disabled
-      newSymbol.isActionDisabled = await isActionDisabled(newSymbol.symbol);
-      return newSymbol;
-    })
-  );
+  common = {
+    version,
+    gitHash: process.env.GIT_HASH || 'unspecified',
+    accountInfo,
+    apiInfo: binance.client.getInfo(),
+    closedTradesSetting: JSON.parse(
+      cacheTrailingTradeCommon['closed-trades'] || '{}'
+    ),
+    orderStats: {
+      numberOfOpenTrades: parseInt(
+        cacheTrailingTradeCommon['number-of-open-trades'],
+        10
+      ),
+      numberOfBuyOpenOrders: parseInt(
+        cacheTrailingTradeCommon['number-of-buy-open-orders'],
+        10
+      )
+    },
+    closedTrades: cacheTrailingTradeClosedTrades,
+    totalProfitAndLoss: cacheTrailingTradeTotalProfitAndLoss,
+    streamsCount,
+    monitoringSymbolsCount,
+    cachedMonitoringSymbolsCount,
+    totalPages
+  };
 
   logger.info(
     {

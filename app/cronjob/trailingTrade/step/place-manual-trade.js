@@ -20,7 +20,7 @@ const setMessage = (logger, rawData, processMessage) => {
 
   logger.info({ data, saveLog: true }, processMessage);
   data.buy.processMessage = processMessage;
-  data.buy.updatedAt = moment().utc();
+  data.buy.updatedAt = moment().utc().toDate();
   return data;
 };
 
@@ -158,12 +158,10 @@ const slackMessageOrderParams = async (logger, symbol, side, order, params) => {
     `The manual ${side.toUpperCase()} order will be placed.`
   );
 
-  return slack.sendMessage(
-    `${symbol} Manual ${side.toUpperCase()} Action (${moment().format(
-      'HH:mm:ss.SSS'
-    )}): *${type}*\n` +
-      `- Order Params: \`\`\`${JSON.stringify(params, undefined, 2)}\`\`\`\n` +
-      `- Current API Usage: ${getAPILimit(logger)}`
+  slack.sendMessage(
+    `*${symbol}* Manual ${side.toUpperCase()} Action: *${type}*\n` +
+      `- Order Params: \`\`\`${JSON.stringify(params, undefined, 2)}\`\`\``,
+    { symbol, apiLimit: getAPILimit(logger) }
   );
 };
 
@@ -202,16 +200,14 @@ const slackMessageOrderResult = async (
       ` If the order is not executed, it should appear soon.`
   });
 
-  return slack.sendMessage(
-    `${symbol} Manual ${side.toUpperCase()} Result (${moment().format(
-      'HH:mm:ss.SSS'
-    )}): *${type}*\n` +
+  slack.sendMessage(
+    `*${symbol}* Manual ${side.toUpperCase()} Result: *${type}*\n` +
       `- Order Result: \`\`\`${JSON.stringify(
         orderResult,
         undefined,
         2
-      )}\`\`\`\n` +
-      `- Current API Usage: ${getAPILimit(logger)}`
+      )}\`\`\``,
+    { symbol, apiLimit: getAPILimit(logger) }
   );
 };
 
@@ -220,17 +216,15 @@ const slackMessageOrderResult = async (
  *
  * @param {*} logger
  * @param {*} orderResult
- * @param {*} checkManualOrderPeriod
  */
-const recordOrder = async (logger, orderResult, checkManualOrderPeriod) => {
+const recordOrder = async (logger, orderResult) => {
   const { symbol, orderId } = orderResult;
 
   // Save manual order
   logger.info({ orderResult }, 'Record  order');
 
   await saveManualOrder(logger, symbol, orderId, {
-    ...orderResult,
-    nextCheck: moment().add(checkManualOrderPeriod, 'seconds').format()
+    ...orderResult
   });
 };
 
@@ -242,21 +236,7 @@ const recordOrder = async (logger, orderResult, checkManualOrderPeriod) => {
  */
 const execute = async (logger, rawData) => {
   const data = rawData;
-  const {
-    symbol,
-    isLocked,
-    action,
-    baseAssetBalance,
-    symbolConfiguration: {
-      system: { checkManualOrderPeriod }
-    },
-    order
-  } = data;
-
-  if (isLocked) {
-    logger.info({ isLocked }, 'Symbol is locked, do not process manual-trade');
-    return data;
-  }
+  const { symbol, action, baseAssetBalance, order } = data;
 
   if (action !== 'manual-trade') {
     logger.info(
@@ -276,8 +256,9 @@ const execute = async (logger, rawData) => {
 
   logger.info({ orderResult }, 'Manual order result');
 
-  await recordOrder(logger, orderResult, checkManualOrderPeriod);
+  await recordOrder(logger, orderResult);
 
+  // FIXME: If you change this comment, please refactor to use common.js:refreshOpenOrdersAndAccountInfo
   // Get open orders and update cache
   data.openOrders = await getAndCacheOpenOrdersForSymbol(logger, symbol);
   data.buy.openOrders = data.openOrders.filter(

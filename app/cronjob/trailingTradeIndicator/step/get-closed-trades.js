@@ -19,22 +19,29 @@ const execute = async (logger, rawData) => {
     {};
 
   const selectedPeriod = _.get(closedTradesSetting, 'selectedPeriod', 'a');
+  const selectedPeriodTZ = _.get(
+    closedTradesSetting,
+    'selectedPeriodTZ',
+    'UTC'
+  );
+  const selectedPeriodLC = _.get(closedTradesSetting, 'selectedPeriodLC', 'us');
 
   let start = null;
   let end = null;
 
+  const momentLocale = moment.tz(selectedPeriodTZ).locale(selectedPeriodLC);
   switch (selectedPeriod) {
     case 'd':
-      start = moment().startOf('day').toISOString();
-      end = moment().endOf('day').toISOString();
+      start = momentLocale.startOf('day').toISOString();
+      end = momentLocale.endOf('day').toISOString();
       break;
     case 'w':
-      start = moment().startOf('week').toISOString();
-      end = moment().endOf('week').toISOString();
+      start = momentLocale.startOf('week').toISOString();
+      end = momentLocale.endOf('week').toISOString();
       break;
     case 'm':
-      start = moment().startOf('month').toISOString();
-      end = moment().endOf('month').toISOString();
+      start = momentLocale.startOf('month').toISOString();
+      end = momentLocale.endOf('month').toISOString();
       break;
     case 'a':
     default:
@@ -44,8 +51,8 @@ const execute = async (logger, rawData) => {
 
   if (start && end) {
     match.archivedAt = {
-      $gte: moment(start).toISOString(),
-      $lte: moment(end).toISOString()
+      $gte: start,
+      $lte: end
     };
   }
 
@@ -66,7 +73,10 @@ const execute = async (logger, rawData) => {
           sellManualQuoteQty: { $sum: '$sellManualQuoteQty' },
           stopLossQuoteQty: { $sum: '$stopLossQuoteQty' },
           profit: { $sum: '$profit' },
-          trades: { $sum: 1 }
+          trades: { $sum: 1 },
+          lastProfit: { $last: '$profit' },
+          lastSymbol: { $last: '$symbol' },
+          lastArchivedAt: { $last: '$archivedAt' }
         }
       },
       {
@@ -96,7 +106,10 @@ const execute = async (logger, rawData) => {
               else: 0
             }
           },
-          trades: 1
+          trades: 1,
+          lastProfit: 1,
+          lastSymbol: 1,
+          lastArchivedAt: 1
         }
       }
     ])
@@ -111,7 +124,10 @@ const execute = async (logger, rawData) => {
     stopLossQuoteQty: 0,
     profit: 0,
     profitPercentage: 0,
-    trades: 0
+    trades: 0,
+    lastProfit: 0,
+    lastSymbol: '',
+    lastArchivedAt: ''
   };
 
   data.closedTrades = closedTrades;
@@ -121,7 +137,9 @@ const execute = async (logger, rawData) => {
     'closed-trades',
     JSON.stringify({
       ...closedTradesSetting,
-      loadedPeriod: selectedPeriod
+      loadedPeriod: selectedPeriod,
+      loadedPeriodTZ: selectedPeriodTZ,
+      loadedPeriodLC: selectedPeriodLC
     })
   );
 

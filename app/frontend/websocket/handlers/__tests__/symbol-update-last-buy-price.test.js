@@ -11,6 +11,7 @@ describe('symbol-update-last-buy-price.test.js', () => {
   let mongoMock;
   let cacheMock;
   let PubSubMock;
+  let mockExecute;
 
   beforeEach(() => {
     jest.clearAllMocks().resetModules();
@@ -20,6 +21,15 @@ describe('symbol-update-last-buy-price.test.js', () => {
     mockWebSocketServer = {
       send: mockWebSocketServerWebSocketSend
     };
+
+    mockExecute = jest.fn((funcLogger, symbol, jobPayload) => {
+      if (!funcLogger || !symbol || !jobPayload) return false;
+      return jobPayload.preprocessFn() && jobPayload.postprocessFn();
+    });
+
+    jest.mock('../../../../cronjob/trailingTradeHelper/queue', () => ({
+      execute: mockExecute
+    }));
   });
 
   describe('update symbol last buy price', () => {
@@ -28,6 +38,7 @@ describe('symbol-update-last-buy-price.test.js', () => {
         const { mongo, logger, PubSub } = require('../../../../helpers');
         mongoMock = mongo;
         loggerMock = logger;
+        loggerMock.fields = { correlationId: 'correlationId' };
         PubSubMock = PubSub;
 
         mongoMock.deleteOne = jest.fn().mockResolvedValue(true);
@@ -52,6 +63,15 @@ describe('symbol-update-last-buy-price.test.js', () => {
           'trailing-trade-symbols',
           { key: 'BTCUSDT-last-buy-price' }
         );
+      });
+
+      it('triggers queue.execute', () => {
+        expect(mockExecute).toHaveBeenCalledWith(loggerMock, 'BTCUSDT', {
+          correlationId: 'correlationId',
+          preprocessFn: expect.any(Function),
+          processFn: expect.any(Function),
+          postprocessFn: expect.any(Function)
+        });
       });
 
       it('triggers PubSub.publish', () => {
@@ -88,6 +108,7 @@ describe('symbol-update-last-buy-price.test.js', () => {
           } = require('../../../../helpers');
           mongoMock = mongo;
           loggerMock = logger;
+          loggerMock.fields = { correlationId: 'correlationId' };
           PubSubMock = PubSub;
           cacheMock = cache;
 
@@ -137,6 +158,7 @@ describe('symbol-update-last-buy-price.test.js', () => {
           beforeEach(async () => {
             const { cache, logger, PubSub } = require('../../../../helpers');
             loggerMock = logger;
+            loggerMock.fields = { correlationId: 'correlationId' };
             PubSubMock = PubSub;
             cacheMock = cache;
 
@@ -199,6 +221,15 @@ describe('symbol-update-last-buy-price.test.js', () => {
             );
           });
 
+          it('triggers queue.execute', () => {
+            expect(mockExecute).toHaveBeenCalledWith(loggerMock, 'BTCUSDT', {
+              correlationId: 'correlationId',
+              preprocessFn: expect.any(Function),
+              processFn: expect.any(Function),
+              postprocessFn: expect.any(Function)
+            });
+          });
+
           it('triggers PubSub.publish', () => {
             expect(PubSubMock.publish).toHaveBeenCalledWith(
               'frontend-notification',
@@ -224,6 +255,7 @@ describe('symbol-update-last-buy-price.test.js', () => {
           beforeEach(async () => {
             const { cache, logger, PubSub } = require('../../../../helpers');
             loggerMock = logger;
+            loggerMock.fields = { correlationId: 'correlationId' };
             PubSubMock = PubSub;
             cacheMock = cache;
 
@@ -284,6 +316,15 @@ describe('symbol-update-last-buy-price.test.js', () => {
                 quantity: 0
               }
             );
+          });
+
+          it('triggers queue.execute', () => {
+            expect(mockExecute).toHaveBeenCalledWith(loggerMock, 'BTCUSDT', {
+              correlationId: 'correlationId',
+              preprocessFn: expect.any(Function),
+              processFn: expect.any(Function),
+              postprocessFn: expect.any(Function)
+            });
           });
 
           it('triggers PubSub.publish', () => {

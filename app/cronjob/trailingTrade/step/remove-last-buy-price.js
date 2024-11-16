@@ -1,19 +1,80 @@
 const _ = require('lodash');
 const moment = require('moment');
-const { slack, PubSub } = require('../../../helpers');
+const { slack, PubSub, binance } = require('../../../helpers');
 const {
-  getAndCacheOpenOrdersForSymbol,
   getAPILimit,
   isActionDisabled,
   removeLastBuyPrice: removeLastBuyPriceFromDatabase,
   saveOrderStats,
-  saveOverrideAction
+  saveOverrideAction,
+  getAndCacheOpenOrdersForSymbol
 } = require('../../trailingTradeHelper/common');
 const {
   archiveSymbolGridTrade,
-  deleteSymbolGridTrade
+  deleteSymbolGridTrade,
+  getSymbolGridTrade
 } = require('../../trailingTradeHelper/configuration');
 const { getGridTradeOrder } = require('../../trailingTradeHelper/order');
+
+/**
+ * Check if base quantity is less than minimum quantity
+ *
+ * @param {*} param0
+ * @returns
+ */
+const isLessThanMinimumQuantity = ({ baseAssetQuantity, minQty }) =>
+  baseAssetQuantity <= parseFloat(minQty);
+
+/**
+ * Check if remained amount is less than last buy price remove threshold
+ *
+ * @param {*} param0
+ * @returns
+ */
+const isLessThanLastBuyPriceRemoveThreshold = ({
+  baseAssetQuantity,
+  currentPrice,
+  lastBuyPriceRemoveThreshold
+}) => baseAssetQuantity * currentPrice < lastBuyPriceRemoveThreshold;
+
+/**
+ * Check if sell order is completed
+ *
+ * @param {*} logger
+ * @param {*} symbol
+ * @returns
+ */
+const isSellOrderCompleted = async (logger, symbol) => {
+  // Get trade order
+  const gridTrade = await getSymbolGridTrade(logger, symbol);
+  if (_.isEmpty(gridTrade)) {
+    logger.info('There is no grid trade for the symbol. Do not process.');
+    return false;
+  }
+
+  const { sell } = gridTrade;
+  if (_.isEmpty(sell)) {
+    logger.info(
+      'There is no sell order in the grid trade for the symbol. Do not process.'
+    );
+    return false;
+  }
+
+  const allExecuted = _.every(sell, s => s.executed);
+  if (allExecuted) {
+    logger.info(
+      { sell, allExecuted },
+      'All sell orders are executed. Delete last buy price.'
+    );
+    return true;
+  }
+
+  logger.info(
+    { sell, allExecuted },
+    'There is unexecuted sell order. Do not process.'
+  );
+  return false;
+};
 
 /**
  * Set message and return data
@@ -28,7 +89,7 @@ const setMessage = (logger, rawData, processMessage) => {
 
   logger.info({ data, saveLog: true }, processMessage);
   data.sell.processMessage = processMessage;
-  data.sell.updatedAt = moment().utc();
+  data.sell.updatedAt = moment().utc().toDate();
   return data;
 };
 
@@ -90,15 +151,13 @@ const removeLastBuyPrice = async (
   await saveOrderStats(logger, symbols);
 
   slack.sendMessage(
-    `${symbol} Action (${moment().format(
-      'HH:mm:ss.SSS'
-    )}): Removed last buy price\n` +
+    `*${symbol}* Action - Removed last buy price:\n` +
       `- Message: ${processMessage}\n\`\`\`${JSON.stringify(
         extraMessages,
         undefined,
         2
-      )}\`\`\`\n` +
-      `- Current API Usage: ${getAPILimit(logger)}`
+      )}\`\`\``,
+    { symbol, apiLimit: getAPILimit(logger) }
   );
 
   PubSub.publish('frontend-notification', {
@@ -111,17 +170,15 @@ const removeLastBuyPrice = async (
 
   // Notify slack
   if (_.isEmpty(archivedGridTrade) === false) {
-    await slack.sendMessage(
-      `${symbol} ${
-        archivedGridTrade.profit > 0 ? 'Profit' : 'Loss'
-      } (${moment().format('HH:mm:ss.SSS')}):\n` +
+    slack.sendMessage(
+      `*${symbol}* ${archivedGridTrade.profit > 0 ? 'Profit' : 'Loss'}:\n` +
         `\`\`\`` +
         ` - Profit: ${archivedGridTrade.profit}\n` +
         ` - ProfitPercentage: ${archivedGridTrade.profitPercentage}\n` +
         ` - Total Buy Amount: ${archivedGridTrade.totalBuyQuoteQty}\n` +
         ` - Total Sell Amount: ${archivedGridTrade.totalSellQuoteQty}\n` +
-        `\`\`\`\n` +
-        `- Current API Usage: ${getAPILimit(logger)}`
+        `\`\`\``,
+      { symbol, apiLimit: getAPILimit(logger) }
     );
   }
 
@@ -134,7 +191,9 @@ const removeLastBuyPrice = async (
       symbol,
       {
         action: 'buy',
-        actionAt: moment().add(autoTriggerBuyTriggerAfter, 'minutes').format(),
+        actionAt: moment()
+          .add(autoTriggerBuyTriggerAfter, 'minutes')
+          .toISOString(),
         triggeredBy: 'auto-trigger',
         notify: true,
         checkTradingView: true
@@ -143,6 +202,49 @@ const removeLastBuyPrice = async (
         ` after ${autoTriggerBuyTriggerAfter} minutes later.`
     );
   }
+};
+
+/**
+ * Process removing last buy price
+ *
+ * @param {*} logger
+ * @param {*} symbol
+ * @param {*} data
+ * @param {*} processMessage
+ * @param {*} extraMessages
+ * @returns
+ */
+const processRemoveLastBuyPrice = async (
+  logger,
+  symbol,
+  data,
+  processMessage,
+  extraMessages
+) => {
+  const refreshedOpenOrders = await getAndCacheOpenOrdersForSymbol(
+    logger,
+    symbol
+  );
+  if (refreshedOpenOrders.length > 0) {
+    await Promise.all(
+      refreshedOpenOrders.map(order =>
+        binance.client.cancelOrder({
+          symbol,
+          orderId: order.orderId
+        })
+      )
+    );
+    logger.info(
+      { refreshedOpenOrders, saveLog: true },
+      'Cancelled all open orders before removing the last buy price.'
+    );
+    // Cache again.
+    await getAndCacheOpenOrdersForSymbol(logger, symbol);
+  }
+
+  await removeLastBuyPrice(logger, symbol, data, processMessage, extraMessages);
+
+  return setMessage(logger, data, processMessage);
 };
 
 /**
@@ -155,7 +257,6 @@ const execute = async (logger, rawData) => {
   const data = rawData;
 
   const {
-    isLocked,
     action,
     symbol,
     symbolConfiguration: {
@@ -173,31 +274,32 @@ const execute = async (logger, rawData) => {
     sell: { currentPrice, lastBuyPrice }
   } = data;
 
-  if (isLocked) {
+  if (['not-determined', 'buy-order-wait'].includes(action) === false) {
     logger.info(
-      { isLocked },
-      'Symbol is locked, do not process remove-last-buy-price'
+      `Do not process to remove last buy price due to the ${action} action.`
     );
     return data;
   }
 
-  if (action !== 'not-determined') {
-    logger.info('Do not process to remove last buy price.');
+  // If last buy price is null, undefined, 0, NaN or less than 0.
+  if (!lastBuyPrice || lastBuyPrice <= 0) {
+    logger.info('Do not process because last buy price does not exist.');
     return data;
   }
 
-  const gridTradeLastBuyOrder = await getGridTradeLastOrder(
-    logger,
-    symbol,
-    'buy'
+  // If the action is disabled, then do not process.
+  const checkDisable = await isActionDisabled(symbol);
+  logger.info(
+    { tag: 'check-disable', checkDisable },
+    'Checked whether symbol is disabled or not.'
   );
-  if (_.isEmpty(gridTradeLastBuyOrder) === false) {
-    logger.info(
-      'Do not process to remove last buy price because there is a grid trade last buy order to be confirmed.'
-    );
+
+  if (checkDisable.isDisabled && checkDisable.canRemoveLastBuyPrice === false) {
+    logger.info('Do not remove last buy price because action is disabled.');
     return data;
   }
 
+  // If there is open order for grid trade sell order, then do not process.
   const gridTradeLastSellOrder = await getGridTradeLastOrder(
     logger,
     symbol,
@@ -210,28 +312,21 @@ const execute = async (logger, rawData) => {
     return data;
   }
 
-  // If last buy price is null, undefined, 0, NaN or less than 0
-  if (!lastBuyPrice || lastBuyPrice <= 0) {
-    logger.info('Do not process because last buy price does not exist.');
-    return data;
+  let processMessage = '';
+
+  if (await isSellOrderCompleted(logger, symbol)) {
+    processMessage = 'All sell orders are executed. Delete last buy price.';
+
+    logger.info(processMessage);
+
+    return processRemoveLastBuyPrice(logger, symbol, data, processMessage, {
+      lastBuyPrice,
+      currentPrice,
+      minNotional,
+      openOrders
+    });
   }
 
-  if (_.isEmpty(openOrders) === false) {
-    logger.info('Do not remove last buy price in case the order is related.');
-    return data;
-  }
-
-  const checkDisable = await isActionDisabled(symbol);
-  logger.info(
-    { tag: 'check-disable', checkDisable },
-    'Checked whether symbol is disabled or not.'
-  );
-  if (checkDisable.isDisabled && checkDisable.canRemoveLastBuyPrice === false) {
-    logger.info('Do not remove last buy price because action is disabled.');
-    return data;
-  }
-
-  // Check one last time for open orders to make sure.
   const lotPrecision = parseFloat(stepSize) === 1 ? 0 : stepSize.indexOf(1) - 1;
 
   const totalBaseAssetBalance =
@@ -244,26 +339,16 @@ const execute = async (logger, rawData) => {
     )
   );
 
-  let processMessage = '';
-
-  let refreshedOpenOrders = [];
-  if (baseAssetQuantity <= parseFloat(minQty)) {
-    // Final check for open orders
-    refreshedOpenOrders = await getAndCacheOpenOrdersForSymbol(logger, symbol);
-    if (refreshedOpenOrders.length > 0) {
-      logger.info('Do not remove last buy price. Found open orders.');
-      return data;
-    }
-
+  if (isLessThanMinimumQuantity({ baseAssetQuantity, minQty })) {
     processMessage = 'Balance is not enough to sell. Delete last buy price.';
 
-    logger.error(
+    logger.info(
       { baseAssetQuantity },
 
       processMessage
     );
 
-    await removeLastBuyPrice(logger, symbol, data, processMessage, {
+    return processRemoveLastBuyPrice(logger, symbol, data, processMessage, {
       lastBuyPrice,
       baseAssetQuantity,
       minQty,
@@ -272,32 +357,27 @@ const execute = async (logger, rawData) => {
       totalBaseAssetBalance,
       openOrders
     });
-
-    return setMessage(logger, data, processMessage);
   }
 
-  if (baseAssetQuantity * currentPrice < lastBuyPriceRemoveThreshold) {
-    // Final check for open orders
-    refreshedOpenOrders = await getAndCacheOpenOrdersForSymbol(logger, symbol);
-    if (refreshedOpenOrders.length > 0) {
-      logger.info('Do not remove last buy price. Found open orders.');
-      return data;
-    }
-
+  if (
+    isLessThanLastBuyPriceRemoveThreshold({
+      baseAssetQuantity,
+      currentPrice,
+      lastBuyPriceRemoveThreshold
+    })
+  ) {
     processMessage =
       'Balance is less than the last buy price remove threshold. Delete last buy price.';
 
-    logger.error({ baseAssetQuantity }, processMessage);
+    logger.info({ baseAssetQuantity }, processMessage);
 
-    await removeLastBuyPrice(logger, symbol, data, processMessage, {
+    return processRemoveLastBuyPrice(logger, symbol, data, processMessage, {
       lastBuyPrice,
       baseAssetQuantity,
       currentPrice,
       minNotional,
       openOrders
     });
-
-    return setMessage(logger, data, processMessage);
   }
 
   return data;

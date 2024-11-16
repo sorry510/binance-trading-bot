@@ -5,6 +5,7 @@ const path = require('path');
 const config = require('config');
 const requestIp = require('request-ip');
 const { RateLimiterRedis } = require('rate-limiter-flexible');
+const fileUpload = require('express-fileupload');
 
 const { maskConfig } = require('./cronjob/trailingTradeHelper/util');
 const { cache } = require('./helpers');
@@ -37,10 +38,22 @@ const runFrontend = async serverLogger => {
   app.use(cors());
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
+  app.use(
+    fileUpload({
+      safeFileNames: true,
+      useTempFiles: true,
+      tempFileDir: '/tmp/'
+    })
+  );
+  // Make data folder to be downloadable
+  const attachmentMiddleware = async (req, res, next) => {
+    if (req.path.split('/')[1] === 'data') res.attachment(); // short for res.set('Content-Disposition', 'attachment')
+    next();
+  };
+  app.use(attachmentMiddleware);
+  app.use(express.static(path.join(global.appRoot, '/../public')));
 
-  app.use(express.static(path.join(__dirname, '/../public')));
-
-  const server = app.listen(80);
+  const server = app.listen(config.get('frontend.port'));
 
   if (config.get('authentication.enabled')) {
     const rateLimiterMiddleware = async (req, res, next) => {

@@ -2,11 +2,11 @@ const _ = require('lodash');
 const moment = require('moment');
 const { binance, slack } = require('../../../helpers');
 const {
-  getAndCacheOpenOrdersForSymbol,
-  getAccountInfoFromAPI,
   isExceedAPILimit,
   disableAction,
-  getAPILimit
+  getAPILimit,
+  getAndCacheOpenOrdersForSymbol,
+  getAccountInfoFromAPI
 } = require('../../trailingTradeHelper/common');
 const {
   saveSymbolGridTrade
@@ -25,7 +25,7 @@ const setMessage = (logger, rawData, processMessage) => {
 
   logger.info({ data, saveLog: true }, processMessage);
   data.sell.processMessage = processMessage;
-  data.sell.updatedAt = moment().utc();
+  data.sell.updatedAt = moment().utc().toDate();
   return data;
 };
 
@@ -40,7 +40,6 @@ const execute = async (logger, rawData) => {
 
   const {
     symbol,
-    isLocked,
     symbolInfo: {
       filterLotSize: { stepSize, minQty, maxQty },
       filterMinNotional: { minNotional }
@@ -61,14 +60,6 @@ const execute = async (logger, rawData) => {
     sell: { currentPrice, openOrders },
     canDisable
   } = data;
-
-  if (isLocked) {
-    logger.info(
-      { isLocked },
-      'Symbol is locked, do not process place-sell-stop-loss-order'
-    );
-    return data;
-  }
 
   if (action !== 'sell-stop-loss') {
     logger.info(
@@ -150,15 +141,13 @@ const execute = async (logger, rawData) => {
   };
 
   slack.sendMessage(
-    `${symbol} Sell Stop-Loss Action (${moment().format(
-      'HH:mm:ss.SSS'
-    )}): *MARKET*` +
+    `*${symbol}* Sell Stop-Loss Action: *MARKET*` +
       `- Order Params: \`\`\`${JSON.stringify(
         orderParams,
         undefined,
         2
-      )}\`\`\`\n` +
-      `- Current API Usage: ${getAPILimit(logger)}`
+      )}\`\`\``,
+    { symbol, apiLimit: getAPILimit(logger) }
   );
 
   logger.info(
@@ -195,6 +184,7 @@ const execute = async (logger, rawData) => {
     );
   }
 
+  // FIXME: If you change this comment, please refactor to use common.js:refreshOpenOrdersAndAccountInfo
   // Get open orders and update cache
   data.openOrders = await getAndCacheOpenOrdersForSymbol(logger, symbol);
   data.sell.openOrders = data.openOrders.filter(
@@ -205,15 +195,13 @@ const execute = async (logger, rawData) => {
   data.accountInfo = await getAccountInfoFromAPI(logger);
 
   slack.sendMessage(
-    `${symbol} Sell Stop-Loss Action Result (${moment().format(
-      'HH:mm:ss.SSS'
-    )}): *MARKET*\n` +
+    `*${symbol}* Sell Stop-Loss Action Result: *MARKET*\n` +
       `- Order Result: \`\`\`${JSON.stringify(
         orderResult,
         undefined,
         2
-      )}\`\`\`\n` +
-      `- Current API Usage: ${getAPILimit(logger)}`
+      )}\`\`\``,
+    { symbol, apiLimit: getAPILimit(logger) }
   );
 
   return setMessage(logger, data, `Placed new market order for selling.`);

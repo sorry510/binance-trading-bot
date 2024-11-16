@@ -1,5 +1,4 @@
 const localtunnel = require('localtunnel');
-const moment = require('moment-timezone');
 const config = require('config');
 const { slack, cache } = require('../../helpers');
 
@@ -22,9 +21,7 @@ const reconnect = (logger, message, ms) => {
 
   isReconnecting = true;
   if (config.get('featureToggle.notifyDebug')) {
-    slack.sendMessage(
-      `Local Tunnel (${moment().format('HH:mm:ss.SSS')}): ${message}`
-    );
+    slack.sendMessage(`Local Tunnel:\n${message}`, { symbol: 'global' });
   }
   logger.warn(message);
 
@@ -52,7 +49,7 @@ const connect = async logger => {
   let tunnel;
   try {
     tunnel = await localtunnel({
-      port: 80,
+      port: config.get('frontend.port'),
       subdomain: config.get('localTunnel.subdomain')
     });
     logger.info({ url: tunnel.url }, 'Connected local tunnel');
@@ -79,7 +76,7 @@ const connect = async logger => {
     // Save config with local tunnel url
     await cache.hset('trailing-trade-common', 'local-tunnel-url', tunnel.url);
 
-    slack.sendMessage(`*Public URL:* ${tunnel.url}`);
+    slack.sendMessage(`*Public URL:* ${tunnel.url}`, { symbol: 'global' });
     logger.info(
       { localTunnelURL: tunnel.url },
       'New URL detected, sent to Slack.'

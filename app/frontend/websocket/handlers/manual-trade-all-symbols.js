@@ -7,6 +7,8 @@ const {
 const {
   saveOverrideAction
 } = require('../../../cronjob/trailingTradeHelper/common');
+const queue = require('../../../cronjob/trailingTradeHelper/queue');
+const { executeTrailingTrade } = require('../../../cronjob/index');
 
 const handleManualTradeAllSymbols = async (logger, ws, payload) => {
   logger.info({ payload }, 'Start manual trade all symbols');
@@ -33,33 +35,41 @@ const handleManualTradeAllSymbols = async (logger, ws, payload) => {
   let currentTime = moment();
   if (side === 'buy') {
     _.forOwn(buy.symbols, (quoteAsset, _quoteSymbol) => {
-      _.forOwn(quoteAsset.baseAssets, (baseAsset, _baseSymbol) => {
+      _.forOwn(quoteAsset.baseAssets, async (baseAsset, _baseSymbol) => {
         const { symbol } = baseAsset;
         const quoteOrderQty = parseFloat(baseAsset.quoteOrderQty);
 
         if (quoteOrderQty > 0) {
-          const symbolOrder = {
-            action: 'manual-trade',
-            order: {
-              side: 'buy',
-              buy: {
-                type: buy.type,
-                marketType: buy.marketType,
-                quoteOrderQty
-              }
-            },
-            actionAt: currentTime.format(),
-            triggeredBy: 'user'
+          const saveOverrideActionFn = async () => {
+            const symbolOrder = {
+              action: 'manual-trade',
+              order: {
+                side: 'buy',
+                buy: {
+                  type: buy.type,
+                  marketType: buy.marketType,
+                  quoteOrderQty
+                }
+              },
+              actionAt: currentTime.toISOString(),
+              triggeredBy: 'user'
+            };
+
+            logger.info({ symbolOrder }, `Queueing order for ${symbol}.`);
+
+            await saveOverrideAction(
+              logger,
+              symbol,
+              symbolOrder,
+              `Order for ${symbol} has been queued.`
+            );
           };
 
-          logger.info({ symbolOrder }, `Queueing order for ${symbol}.`);
-
-          saveOverrideAction(
-            logger,
-            symbol,
-            symbolOrder,
-            `Order for ${symbol} has been queued.`
-          );
+          queue.execute(logger, symbol, {
+            correlationId: _.get(logger, 'fields.correlationId', ''),
+            preprocessFn: saveOverrideActionFn,
+            processFn: executeTrailingTrade
+          });
 
           currentTime = moment(currentTime).add(
             placeManualOrderInterval,
@@ -72,33 +82,41 @@ const handleManualTradeAllSymbols = async (logger, ws, payload) => {
 
   if (side === 'sell') {
     _.forOwn(sell.symbols, (quoteAsset, _quoteSymbol) => {
-      _.forOwn(quoteAsset.baseAssets, (baseAsset, _baseSymbol) => {
+      _.forOwn(quoteAsset.baseAssets, async (baseAsset, _baseSymbol) => {
         const { symbol } = baseAsset;
         const marketQuantity = parseFloat(baseAsset.marketQuantity);
 
         if (marketQuantity > 0) {
-          const symbolOrder = {
-            action: 'manual-trade',
-            order: {
-              side: 'sell',
-              sell: {
-                type: sell.type,
-                marketType: sell.marketType,
-                marketQuantity
-              }
-            },
-            actionAt: currentTime.format(),
-            triggeredBy: 'user'
+          const saveOverrideActionFn = async () => {
+            const symbolOrder = {
+              action: 'manual-trade',
+              order: {
+                side: 'sell',
+                sell: {
+                  type: sell.type,
+                  marketType: sell.marketType,
+                  marketQuantity
+                }
+              },
+              actionAt: currentTime.toISOString(),
+              triggeredBy: 'user'
+            };
+
+            logger.info({ symbolOrder }, `Queueing order for ${symbol}.`);
+
+            await saveOverrideAction(
+              logger,
+              symbol,
+              symbolOrder,
+              `Order for ${symbol} has been queued.`
+            );
           };
 
-          logger.info({ symbolOrder }, `Queueing order for ${symbol}.`);
-
-          saveOverrideAction(
-            logger,
-            symbol,
-            symbolOrder,
-            `Order for ${symbol} has been queued.`
-          );
+          queue.execute(logger, symbol, {
+            correlationId: _.get(logger, 'fields.correlationId', ''),
+            preprocessFn: saveOverrideActionFn,
+            processFn: executeTrailingTrade
+          });
 
           currentTime = moment(currentTime).add(
             placeManualOrderInterval,
